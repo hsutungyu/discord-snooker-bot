@@ -7,7 +7,7 @@ from discord.ext import commands
 import config
 from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, foul_penalty, distribute_penalty
 from engine.session import SnookerSession
-from db.database import save_session, save_set, end_session, get_completed_sessions
+from db.database import save_session, save_set, end_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid
 
 # channel_id -> SnookerSession
 active_sessions: dict[int, SnookerSession] = {}
@@ -192,21 +192,7 @@ class EndSessionButton(discord.ui.Button):
         if self._session.channel_id in active_sessions:
             del active_sessions[self._session.channel_id]
 
-        totals = self._session.total_scores()
-        sorted_players = sorted(totals.items(), key=lambda x: x[1], reverse=True)
-        medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
-        lines = [
-            f"{medals[i]} {p:<12} {pts:>4} pts"
-            for i, (p, pts) in enumerate(sorted_players)
-        ]
-
-        embed = discord.Embed(title=f"🏁 Session Ended — {self._session.date}", color=0xE74C3C)
-        embed.add_field(
-            name="Final Scores",
-            value="```\n" + "\n".join(lines) + "\n```",
-            inline=False,
-        )
-        embed.add_field(name="Sets Played", value=str(len(self._session.completed_sets)), inline=True)
+        embed, debt_line = await _build_end_embed(self._session)
         await interaction.response.edit_message(embed=embed, view=None)
 
 
@@ -356,21 +342,7 @@ class RecordEndSessionButton(discord.ui.Button):
         if self._session.channel_id in active_sessions:
             del active_sessions[self._session.channel_id]
 
-        totals = self._session.total_scores()
-        sorted_players = sorted(totals.items(), key=lambda x: x[1], reverse=True)
-        medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
-        lines = [
-            f"{medals[i]} {p:<12} {pts:>4} pts"
-            for i, (p, pts) in enumerate(sorted_players)
-        ]
-
-        embed = discord.Embed(title=f"🏁 Session Ended — {self._session.date}", color=0xE74C3C)
-        embed.add_field(
-            name="Final Scores",
-            value="```\n" + "\n".join(lines) + "\n```",
-            inline=False,
-        )
-        embed.add_field(name="Sets Played", value=str(len(self._session.completed_sets)), inline=True)
+        embed, debt_line = await _build_end_embed(self._session)
         await interaction.response.edit_message(embed=embed, view=None)
 
 
@@ -537,6 +509,39 @@ class PlayerSelectView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
+# Session end helper (shared by Full + Record mode)
+# ---------------------------------------------------------------------------
+
+async def _build_end_embed(session: SnookerSession):
+    """Build the session-ended embed, record the debt, return (embed, debt_line)."""
+    totals = session.total_scores()
+    sorted_players = sorted(session.players, key=lambda p: totals.get(p, 0), reverse=True)
+    medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
+    lines = [
+        f"{medals[i]} {p:<12} {totals.get(p, 0):>3} rp"
+        for i, p in enumerate(sorted_players)
+    ]
+
+    creditor = sorted_players[0]
+    debtor = sorted_players[-1]
+    debt_line = ""
+    if len(session.players) >= 2 and creditor != debtor:
+        await create_debt(session.session_id, session.date, debtor, creditor)
+        debt_line = f"🧋 **{debtor}** owes a bubble tea to **{creditor}**"
+
+    embed = discord.Embed(title=f"🏁 Session Ended — {session.date}", color=0xE74C3C)
+    embed.add_field(
+        name="Final Standings",
+        value="```\n" + "\n".join(lines) + "\n```",
+        inline=False,
+    )
+    embed.add_field(name="Sets Played", value=str(len(session.completed_sets)), inline=True)
+    if debt_line:
+        embed.add_field(name="🧋 Bubble Tea Debt", value=debt_line, inline=False)
+    return embed, debt_line
+
+
+# ---------------------------------------------------------------------------
 # History view
 # ---------------------------------------------------------------------------
 
@@ -637,6 +642,72 @@ class HistoryView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
+# Debt view
+# ---------------------------------------------------------------------------
+
+def build_debt_embed(debts: list[dict]) -> discord.Embed:
+    embed = discord.Embed(title="🧋 Bubble Tea Debts", color=0xF39C12)
+    if not debts:
+        embed.description = "No debts recorded yet. Play some snooker first!"
+        return embed
+
+    unpaid = [d for d in debts if not d["paid"]]
+    paid = [d for d in debts if d["paid"]]
+
+    if unpaid:
+        lines = [
+            f"#{d['id']}  {d['session_date']}  {d['debtor']:<12} → {d['creditor']}"
+            for d in unpaid
+        ]
+        embed.add_field(
+            name=f"⏳ Outstanding ({len(unpaid)})",
+            value="```\n" + "\n".join(lines) + "\n```",
+            inline=False,
+        )
+    else:
+        embed.add_field(name="⏳ Outstanding", value="All debts are settled! 🎉", inline=False)
+
+    if paid:
+        lines = [
+            f"#{d['id']}  {d['session_date']}  {d['debtor']:<12} → {d['creditor']}  ✅"
+            for d in paid[-5:]  # show last 5 paid
+        ]
+        embed.add_field(
+            name=f"✅ Recently Paid",
+            value="```\n" + "\n".join(lines) + "\n```",
+            inline=False,
+        )
+
+    return embed
+
+
+class MarkPaidButton(discord.ui.Button):
+    def __init__(self, debt: dict, row: int):
+        self._debt_id = debt["id"]
+        super().__init__(
+            label=f"✅ #{debt['id']} {debt['debtor']} → {debt['creditor']} ({debt['session_date']})",
+            style=discord.ButtonStyle.success,
+            row=row,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await mark_debt_paid(self._debt_id)
+        debts = await get_debts()
+        embed = build_debt_embed(debts)
+        unpaid = [d for d in debts if not d["paid"]]
+        view = DebtView(unpaid) if unpaid else None
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class DebtView(discord.ui.View):
+    def __init__(self, unpaid_debts: list[dict]):
+        super().__init__(timeout=120)
+        # Max 5 buttons per view (rows 0–4), one per unpaid debt
+        for i, debt in enumerate(unpaid_debts[:5]):
+            self.add_item(MarkPaidButton(debt, row=i))
+
+
+# ---------------------------------------------------------------------------
 # Cog
 # ---------------------------------------------------------------------------
 
@@ -662,6 +733,15 @@ class SnookerCog(commands.Cog):
         sessions = await get_completed_sessions()
         embed = build_history_embed(sessions, 0)
         view = HistoryView(sessions, 0) if sessions else None
+        await interaction.followup.send(embed=embed, view=view)
+
+    @app_commands.command(name="debt", description="View and manage bubble tea debts")
+    async def debt(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        debts = await get_debts()
+        embed = build_debt_embed(debts)
+        unpaid = [d for d in debts if not d["paid"]]
+        view = DebtView(unpaid) if unpaid else None
         await interaction.followup.send(embed=embed, view=view)
 
 

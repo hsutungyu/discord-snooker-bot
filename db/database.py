@@ -36,6 +36,18 @@ async def init_db():
             await db.execute("ALTER TABLE sets ADD COLUMN ranking_points TEXT")
         except Exception:
             pass  # column already exists
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS debts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                session_date TEXT NOT NULL,
+                debtor TEXT NOT NULL,
+                creditor TEXT NOT NULL,
+                paid INTEGER NOT NULL DEFAULT 0,
+                paid_at TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        """)
         await db.commit()
 
 
@@ -134,3 +146,38 @@ async def get_completed_sessions() -> list[dict]:
             result.append(session)
 
         return result
+
+
+async def create_debt(session_id: str, session_date: str, debtor: str, creditor: str) -> None:
+    """Record a bubble tea debt for a completed session."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO debts (session_id, session_date, debtor, creditor, paid)
+            VALUES (?, ?, ?, ?, 0)
+            """,
+            (session_id, session_date, debtor, creditor),
+        )
+        await db.commit()
+
+
+async def get_debts() -> list[dict]:
+    """Return all debts, unpaid first then paid, newest first within each group."""
+    if not DB_PATH.exists():
+        return []
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM debts ORDER BY paid ASC, id DESC"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def mark_debt_paid(debt_id: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE debts SET paid = 1, paid_at = ? WHERE id = ?",
+            (datetime.now().isoformat(), debt_id),
+        )
+        await db.commit()
