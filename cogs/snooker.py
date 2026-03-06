@@ -199,6 +199,9 @@ class EndSessionButton(discord.ui.Button):
 
         embed, debt_line = await _build_end_embed(self._session)
         await interaction.response.edit_message(embed=embed, view=None)
+
+
+class ScoreboardView(discord.ui.View):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=None)
         for ball in BALLS:
@@ -351,6 +354,9 @@ class RecordEndSessionButton(discord.ui.Button):
 
         embed, debt_line = await _build_end_embed(self._session)
         await interaction.response.edit_message(embed=embed, view=None)
+
+
+class RecordScoreboardView(discord.ui.View):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=None)
         self.add_item(EnterScoresButton(session))
