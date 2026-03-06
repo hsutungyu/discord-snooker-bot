@@ -29,17 +29,31 @@ def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
     score_lines = []
     for p in session.players:
         arrow = "▶" if cs and p == cs.current_player() else " "
-        score_lines.append(f"{arrow} {p:<12} {totals[p]:>4} pts")
+        score_lines.append(f"{arrow} {p:<12} {totals[p]:>3} rp")
     embed.add_field(
-        name="Total Scores",
+        name=f"Ranking Points ({sets_done} set{'s' if sets_done != 1 else ''} done)",
         value="```\n" + "\n".join(score_lines) + "\n```",
         inline=False,
     )
 
+    # Last completed set: show raw scores + ranking points awarded
+    if session.last_completed_set:
+        lcs = session.last_completed_set
+        rp = lcs.get("ranking_points", {})
+        last_lines = [
+            f"  {p:<12} {lcs['scores'].get(p, 0):>4} pts  +{rp.get(p, 0)} rp"
+            for p in session.players
+        ]
+        embed.add_field(
+            name=f"Set {lcs['set_number']} Results",
+            value="```\n" + "\n".join(last_lines) + "\n```",
+            inline=False,
+        )
+
     if cs:
         set_lines = [f"  {p:<12} {cs.scores.get(p, 0):>4}" for p in cs.player_order]
         embed.add_field(
-            name=f"Set {cs.set_number} Scores",
+            name=f"Set {cs.set_number} (in progress)",
             value="```\n" + "\n".join(set_lines) + "\n```",
             inline=False,
         )
@@ -60,12 +74,26 @@ def build_record_embed(session: SnookerSession) -> discord.Embed:
     embed.set_footer(text=f"Set {set_num} | {sets_done} set(s) completed")
 
     totals = session.total_scores()
-    total_lines = [f"  {p:<12} {totals[p]:>4} pts" for p in session.players]
+    total_lines = [f"  {p:<12} {totals[p]:>3} rp" for p in session.players]
     embed.add_field(
-        name="Total Scores",
+        name=f"Ranking Points ({sets_done} set{'s' if sets_done != 1 else ''} done)",
         value="```\n" + "\n".join(total_lines) + "\n```",
         inline=False,
     )
+
+    # Last completed set results
+    if session.last_completed_set:
+        lcs = session.last_completed_set
+        rp = lcs.get("ranking_points", {})
+        last_lines = [
+            f"  {p:<12} {lcs['scores'].get(p, 0):>4} pts  +{rp.get(p, 0)} rp"
+            for p in session.players
+        ]
+        embed.add_field(
+            name=f"Set {lcs['set_number']} Results",
+            value="```\n" + "\n".join(last_lines) + "\n```",
+            inline=False,
+        )
 
     if cs:
         if cs.scores_finalized:

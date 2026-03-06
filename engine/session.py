@@ -5,7 +5,7 @@ from itertools import permutations
 from typing import Optional
 from dataclasses import dataclass, field
 
-from engine.score import distribute_penalty
+from engine.score import distribute_penalty, ranking_points
 
 
 @dataclass
@@ -44,6 +44,7 @@ class SnookerSession:
     current_set: Optional[SetState] = None
     channel_id: Optional[int] = None
     message_id: Optional[int] = None
+    last_completed_set: Optional[dict] = None
     _perm_pool: list[list[int]] = field(default_factory=list)
 
     def init_players(self, players: list[str]):
@@ -77,21 +78,22 @@ class SnookerSession:
     def save_current_set(self) -> dict:
         if not self.current_set:
             return {}
+        rp = ranking_points(self.current_set.scores, self.players)
         result = {
             "set_number": self.current_set.set_number,
             "player_order": self.current_set.player_order,
             "scores": dict(self.current_set.scores),
+            "ranking_points": rp,
         }
         self.completed_sets.append(result)
+        self.last_completed_set = result
         self.current_set = None
         return result
 
     def total_scores(self) -> dict[str, int]:
+        """Sum of ranking points from completed sets only."""
         totals = {p: 0 for p in self.players}
         for s in self.completed_sets:
-            for p, pts in s["scores"].items():
-                totals[p] = totals.get(p, 0) + pts
-        if self.current_set:
-            for p, pts in self.current_set.scores.items():
-                totals[p] = totals.get(p, 0) + pts
+            for p, rp in s.get("ranking_points", {}).items():
+                totals[p] = totals.get(p, 0) + rp
         return totals
