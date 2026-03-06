@@ -736,8 +736,10 @@ class SnookerCog(commands.Cog):
         await interaction.response.defer(ephemeral=False)
         sessions = await get_completed_sessions()
         embed = build_history_embed(sessions, 0)
-        view = HistoryView(sessions, 0) if sessions else None
-        await interaction.followup.send(embed=embed, view=view)
+        if sessions:
+            await interaction.followup.send(embed=embed, view=HistoryView(sessions, 0))
+        else:
+            await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="debt", description="View and manage bubble tea debts")
     async def debt(self, interaction: discord.Interaction):
@@ -745,8 +747,10 @@ class SnookerCog(commands.Cog):
         debts = await get_debts()
         embed = build_debt_embed(debts)
         unpaid = [d for d in debts if not d["paid"]]
-        view = DebtView(unpaid) if unpaid else None
-        await interaction.followup.send(embed=embed, view=view)
+        if unpaid:
+            await interaction.followup.send(embed=embed, view=DebtView(unpaid))
+        else:
+            await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):
