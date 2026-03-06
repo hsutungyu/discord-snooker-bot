@@ -8,7 +8,7 @@ A Discord bot that acts as a digital scoreboard for snooker sessions. Designed f
 - **2-player mode** — standard snooker rules (fouls go directly to the opponent)
 - **3–4 player mode** — players take individual turns; foul penalties are split equally among non-fouling players (rounded up)
 - **Smart player order** — turn order is shuffled each set and never repeats a permutation until all have been used
-- **Per-set ranking points** — at the end of each set, players are ranked by score: 1st gets N pts, last gets 1 pt (N = number of players); ties share the higher rank
+- **Per-set ranking points** — at the end of each set, players are ranked by score: 1st gets N pts, last gets 1 pt (N = number of players); ties share the higher rank. **Tied ranking points at session end are broken by total raw score across all sets.**
 - **Foul flow** — select who fouled and on which ball; points distributed automatically
 - **Session history** — `/history` command to browse all past sessions with standings and per-set breakdowns
 - **Bubble tea debt tracking** — last-place player owes a bubble tea to the winner; `/debt` command to view and settle debts
@@ -130,27 +130,31 @@ docker run --env-file .env git.19371928.xyz/automation/discord-snooker:latest
 
 ## Kubernetes
 
-Create a secret with your credentials, then deploy with a single-replica `Deployment`. Discord bots must not run more than one replica at a time.
+A ready-to-use `deploy.yaml` manifest is included. It deploys a single-replica `Deployment` to the `automation` namespace using the Gitea registry image. Discord bots must not run more than one replica at a time.
+
+**1. Create the credentials secret:**
 
 ```bash
-kubectl create secret generic snooker-bot-secret \
+kubectl create secret generic discord-snooker-secret \
+  --namespace automation \
   --from-literal=DISCORD_TOKEN=your_token \
   --from-literal=DATABASE_URL=postgresql://user:password@host:5432/dbname
 ```
 
-Example `Deployment` snippet:
+**2. Create the registry pull secret:**
 
-```yaml
-spec:
-  replicas: 1
-  template:
-    spec:
-      containers:
-        - name: snooker-bot
-          image: git.19371928.xyz/automation/discord-snooker:latest
-          envFrom:
-            - secretRef:
-                name: snooker-bot-secret
+```bash
+kubectl create secret docker-registry gitea-registry-secret \
+  --namespace automation \
+  --docker-server=git.19371928.xyz \
+  --docker-username=your_username \
+  --docker-password=your_password
+```
+
+**3. Apply the manifest:**
+
+```bash
+kubectl apply -f deploy.yaml
 ```
 
 ## Usage
@@ -201,7 +205,7 @@ At the end of each set, players are awarded ranking points based on their score:
 | 3rd | 2 rp |
 | 4th | 1 rp |
 
-Tied players both receive the higher rank's points. The session leaderboard shows cumulative ranking points across all completed sets.
+Tied players both receive the higher rank's points. The session leaderboard shows cumulative ranking points across all completed sets. If two players finish with equal total ranking points, the player with the higher total raw score (points potted across all sets) is ranked higher.
 
 ### Managing sets
 
@@ -214,7 +218,7 @@ Tied players both receive the higher rank's points. The session leaderboard show
 /history
 ```
 
-Browse all completed sessions using the **◀ Newer / Older ▶** buttons. Each page shows the final standings and a per-set ranking point breakdown.
+Browse all completed sessions using the **◀ Newer / Older ▶** buttons. Each page shows the final standings and a per-set score breakdown in playing order.
 
 ### Bubble tea debts
 
@@ -241,11 +245,12 @@ bot.py          Entry point
 config.py       Bot token, database URL, player names
 engine/
   score.py      Ball values, foul penalty, ranking_points logic
-  session.py    Session + set state, permutation cycling
+  session.py    Session + set state, permutation cycling, raw score tiebreaker
 db/
   database.py   PostgreSQL persistence (asyncpg connection pool)
 cogs/
   snooker.py    All Discord UI: Views, Buttons, /snooker, /history, /debt
+deploy.yaml     Kubernetes Deployment manifest (namespace: automation)
 Dockerfile      Multi-stage build (builder + lean runtime)
 .dockerignore
 ```
