@@ -94,9 +94,35 @@ The bot will print `Logged in as ...` and sync slash commands on startup. Slash 
 
 ## Docker
 
+The image is hosted on the project's Gitea container registry at `git.19371928.xyz`.
+
+### Build and push
+
+Use the included PowerShell script to build and push to the registry:
+
+```powershell
+.\build-and-push.ps1
+```
+
+By default this tags the image as `latest`. You can pass an explicit tag:
+
+```powershell
+.\build-and-push.ps1 -Tag 1.2.3
+```
+
+You will be prompted for your Gitea credentials if you are not already logged in (`docker login git.19371928.xyz`).
+
+The full image reference is:
+
+```
+git.19371928.xyz/automation/discord-snooker:<tag>
+```
+
+### Run locally from the registry
+
 ```bash
-docker build -t snooker-bot .
-docker run --env-file .env snooker-bot
+docker pull git.19371928.xyz/automation/discord-snooker:latest
+docker run --env-file .env git.19371928.xyz/automation/discord-snooker:latest
 ```
 
 ## Kubernetes
@@ -118,7 +144,7 @@ spec:
     spec:
       containers:
         - name: snooker-bot
-          image: your-registry/snooker-bot:latest
+          image: git.19371928.xyz/automation/discord-snooker:latest
           envFrom:
             - secretRef:
                 name: snooker-bot-secret
