@@ -7,7 +7,7 @@ from discord.ext import commands
 import config
 from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, foul_penalty, distribute_penalty
 from engine.session import SnookerSession
-from db.database import save_session, save_set, end_session
+from db.database import save_session, save_set, end_session, get_completed_sessions
 
 # channel_id -> SnookerSession
 active_sessions: dict[int, SnookerSession] = {}
@@ -537,6 +537,106 @@ class PlayerSelectView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
+# History view
+# ---------------------------------------------------------------------------
+
+def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
+    if not sessions:
+        return discord.Embed(
+            title="📜 Session History",
+            description="No completed sessions yet.",
+            color=0x95A5A6,
+        )
+
+    session = sessions[page]
+    total_pages = len(sessions)
+    players = session["players"]
+    totals = session["ranking_totals"]
+    sets = session["sets"]
+
+    embed = discord.Embed(
+        title=f"📜 Session — {session['date']}",
+        color=0x9B59B6,
+    )
+    embed.set_footer(text=f"Session {page + 1} of {total_pages}  |  {len(sets)} set(s) played")
+
+    # Final standings
+    sorted_players = sorted(players, key=lambda p: totals.get(p, 0), reverse=True)
+    medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
+    standing_lines = [
+        f"{medals[i]} {p:<12} {totals.get(p, 0):>3} rp"
+        for i, p in enumerate(sorted_players)
+    ]
+    embed.add_field(
+        name="🏆 Final Standings",
+        value="```\n" + "\n".join(standing_lines) + "\n```",
+        inline=False,
+    )
+
+    # Per-set breakdown: ranking points awarded each set
+    if sets:
+        set_lines = []
+        for s in sets:
+            rp = s.get("ranking_points", {})
+            # Show players sorted by rp this set, descending
+            set_sorted = sorted(players, key=lambda p: rp.get(p, 0), reverse=True)
+            parts = "  ".join(f"{p} +{rp.get(p, 0)}rp" for p in set_sorted)
+            set_lines.append(f"Set {s['set_number']:>2}: {parts}")
+        embed.add_field(
+            name="Set Results",
+            value="```\n" + "\n".join(set_lines) + "\n```",
+            inline=False,
+        )
+
+    return embed
+
+
+class HistoryPrevButton(discord.ui.Button):
+    def __init__(self, sessions: list[dict], page: int):
+        self._sessions = sessions
+        self._page = page
+        super().__init__(
+            label="◀ Newer",
+            style=discord.ButtonStyle.secondary,
+            disabled=page == 0,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        new_page = self._page - 1
+        await interaction.response.edit_message(
+            embed=build_history_embed(self._sessions, new_page),
+            view=HistoryView(self._sessions, new_page),
+        )
+
+
+class HistoryNextButton(discord.ui.Button):
+    def __init__(self, sessions: list[dict], page: int):
+        self._sessions = sessions
+        self._page = page
+        super().__init__(
+            label="Older ▶",
+            style=discord.ButtonStyle.secondary,
+            disabled=page >= len(sessions) - 1,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        new_page = self._page + 1
+        await interaction.response.edit_message(
+            embed=build_history_embed(self._sessions, new_page),
+            view=HistoryView(self._sessions, new_page),
+        )
+
+
+class HistoryView(discord.ui.View):
+    def __init__(self, sessions: list[dict], page: int = 0):
+        super().__init__(timeout=120)
+        self.add_item(HistoryPrevButton(sessions, page))
+        self.add_item(HistoryNextButton(sessions, page))
+
+
+# ---------------------------------------------------------------------------
 # Cog
 # ---------------------------------------------------------------------------
 
@@ -555,6 +655,14 @@ class SnookerCog(commands.Cog):
 
         view = PlayerSelectView()
         await interaction.response.send_message("Select players (minimum 2):", view=view)
+
+    @app_commands.command(name="history", description="View historical snooker session scores")
+    async def history(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        sessions = await get_completed_sessions()
+        embed = build_history_embed(sessions, 0)
+        view = HistoryView(sessions, 0) if sessions else None
+        await interaction.followup.send(embed=embed, view=view)
 
 
 async def setup(bot: commands.Bot):
