@@ -184,9 +184,14 @@ class EndSessionButton(discord.ui.Button):
         super().__init__(label="🏁 End Session", style=discord.ButtonStyle.danger, row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        set_data = self._session.save_current_set()
-        if set_data:
-            await save_set(self._session.session_id, set_data)
+        # Only save the current set if it has actual scores (avoid empty-set rp inflation)
+        cs = self._session.current_set
+        if cs and any(v > 0 for v in cs.scores.values()):
+            set_data = self._session.save_current_set()
+            if set_data:
+                await save_set(self._session.session_id, set_data)
+        else:
+            self._session.current_set = None  # discard empty set
         await end_session(self._session.session_id)
 
         if self._session.channel_id in active_sessions:
@@ -194,9 +199,6 @@ class EndSessionButton(discord.ui.Button):
 
         embed, debt_line = await _build_end_embed(self._session)
         await interaction.response.edit_message(embed=embed, view=None)
-
-
-class ScoreboardView(discord.ui.View):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=None)
         for ball in BALLS:
@@ -334,9 +336,14 @@ class RecordEndSessionButton(discord.ui.Button):
         super().__init__(label="🏁 End Session", style=discord.ButtonStyle.danger, row=0)
 
     async def callback(self, interaction: discord.Interaction):
-        set_data = self._session.save_current_set()
-        if set_data:
-            await save_set(self._session.session_id, set_data)
+        # Only save the current set if scores were actually entered
+        cs = self._session.current_set
+        if cs and cs.scores_finalized:
+            set_data = self._session.save_current_set()
+            if set_data:
+                await save_set(self._session.session_id, set_data)
+        else:
+            self._session.current_set = None  # discard unfinished set
         await end_session(self._session.session_id)
 
         if self._session.channel_id in active_sessions:
@@ -344,9 +351,6 @@ class RecordEndSessionButton(discord.ui.Button):
 
         embed, debt_line = await _build_end_embed(self._session)
         await interaction.response.edit_message(embed=embed, view=None)
-
-
-class RecordScoreboardView(discord.ui.View):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=None)
         self.add_item(EnterScoresButton(session))
