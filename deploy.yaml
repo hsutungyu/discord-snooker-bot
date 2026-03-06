@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discord-snooker
+  namespace: automation
+  labels:
+    app: discord-snooker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: discord-snooker
+  template:
+    metadata:
+      labels:
+        app: discord-snooker
+    spec:
+      containers:
+        - name: discord-snooker
+          image: git.19371928.xyz/automation/discord-snooker:latest
+          imagePullPolicy: Always
+          env:
+            - name: DISCORD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: discord-snooker-secret
+                  key: DISCORD_TOKEN
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: discord-snooker-secret
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      imagePullSecrets:
+        - name: gitea-registry-secret
+      restartPolicy: Always
