@@ -5,6 +5,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+import config
 from db.database import init_db
 
 load_dotenv()
@@ -24,10 +25,12 @@ async def on_ready():
 
 
 async def main():
-    await init_db()
+    if not config.DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not set in .env")
+    await init_db(config.DATABASE_URL)
     async with bot:
         await bot.load_extension("cogs.snooker")
-        await bot.start(os.getenv("DISCORD_TOKEN"))
+        await bot.start(config.DISCORD_TOKEN)
 
 
 if __name__ == "__main__":
