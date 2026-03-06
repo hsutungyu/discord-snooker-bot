@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import traceback
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -9,8 +12,25 @@ from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, foul_penalty, distribu
 from engine.session import SnookerSession
 from db.database import save_session, save_set, end_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid
 
+log = logging.getLogger(__name__)
+
 # channel_id -> SnookerSession
 active_sessions: dict[int, SnookerSession] = {}
+
+
+class BaseView(discord.ui.View):
+    """All views extend this to ensure errors are logged to the console."""
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        log.exception("Unhandled error in %s (item=%s): %s", type(self).__name__, type(item).__name__, error)
+        msg = "An unexpected error occurred."
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +221,7 @@ class EndSessionButton(discord.ui.Button):
         await interaction.response.edit_message(embed=embed, view=None)
 
 
-class ScoreboardView(discord.ui.View):
+class ScoreboardView(BaseView):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=None)
         for ball in BALLS:
@@ -247,7 +267,7 @@ class FoulPlayerButton(discord.ui.Button):
         )
 
 
-class FoulPlayerSelectView(discord.ui.View):
+class FoulPlayerSelectView(BaseView):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=None)
         for p in session.players:
@@ -290,7 +310,7 @@ class FoulBallButton(discord.ui.Button):
         await interaction.response.edit_message(embed=embed, view=ScoreboardView(self._session))
 
 
-class FoulBallSelectView(discord.ui.View):
+class FoulBallSelectView(BaseView):
     def __init__(self, session: SnookerSession, fouling_player: str):
         super().__init__(timeout=None)
         for ball in BALLS:
@@ -356,7 +376,7 @@ class RecordEndSessionButton(discord.ui.Button):
         await interaction.response.edit_message(embed=embed, view=None)
 
 
-class RecordScoreboardView(discord.ui.View):
+class RecordScoreboardView(BaseView):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=None)
         self.add_item(EnterScoresButton(session))
@@ -440,7 +460,7 @@ class RecordModeButton(discord.ui.Button):
         )
 
 
-class ModeSelectView(discord.ui.View):
+class ModeSelectView(BaseView):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=300)
         self.add_item(FullModeButton(session))
@@ -504,7 +524,7 @@ class StartSessionButton(discord.ui.Button):
         )
 
 
-class PlayerSelectView(discord.ui.View):
+class PlayerSelectView(BaseView):
     def __init__(self):
         super().__init__(timeout=300)
         # Start with all players selected
@@ -644,7 +664,7 @@ class HistoryNextButton(discord.ui.Button):
         )
 
 
-class HistoryView(discord.ui.View):
+class HistoryView(BaseView):
     def __init__(self, sessions: list[dict], page: int = 0):
         super().__init__(timeout=120)
         self.add_item(HistoryPrevButton(sessions, page))
@@ -709,7 +729,7 @@ class MarkPaidButton(discord.ui.Button):
         await interaction.response.edit_message(embed=embed, view=view)
 
 
-class DebtView(discord.ui.View):
+class DebtView(BaseView):
     def __init__(self, unpaid_debts: list[dict]):
         super().__init__(timeout=120)
         # Max 5 buttons per view (rows 0–4), one per unpaid debt
