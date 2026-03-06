@@ -725,8 +725,10 @@ class MarkPaidButton(discord.ui.Button):
         debts = await get_debts()
         embed = build_debt_embed(debts)
         unpaid = [d for d in debts if not d["paid"]]
-        view = DebtView(unpaid) if unpaid else None
-        await interaction.response.edit_message(embed=embed, view=view)
+        if unpaid:
+            await interaction.response.edit_message(embed=embed, view=DebtView(unpaid))
+        else:
+            await interaction.response.edit_message(embed=embed, view=None)
 
 
 class DebtView(BaseView):
