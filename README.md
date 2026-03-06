@@ -98,16 +98,19 @@ The image is hosted on the project's Gitea container registry at `git.19371928.x
 
 ### Build and push
 
-Use the included PowerShell script to build and push to the registry:
+Use the included script to build and push to the registry.
 
+**PowerShell (Windows):**
 ```powershell
-.\build-and-push.ps1
+.\build-and-push.ps1            # tag: latest
+.\build-and-push.ps1 -Tag 1.2.3 # tag: 1.2.3 + latest
 ```
 
-By default this tags the image as `latest`. You can pass an explicit tag:
-
-```powershell
-.\build-and-push.ps1 -Tag 1.2.3
+**Bash (Linux/macOS):**
+```bash
+chmod +x build-and-push.sh
+./build-and-push.sh             # tag: latest
+./build-and-push.sh 1.2.3       # tag: 1.2.3 + latest
 ```
 
 You will be prompted for your Gitea credentials if you are not already logged in (`docker login git.19371928.xyz`).
