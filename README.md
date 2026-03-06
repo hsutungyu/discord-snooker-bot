@@ -1,14 +1,18 @@
 # 🎱 Discord Snooker Bot
 
-A Discord bot that acts as a digital scoreboard for snooker sessions. Designed for a fixed group of up to 4 players, it handles scoring, foul distribution, and player order — all through Discord's button UI with no manual score entry.
+A Discord bot that acts as a digital scoreboard for snooker sessions. Designed for a fixed group of up to 4 players, it handles scoring, foul distribution, player order, and ranking — all through Discord's button UI with no manual score entry.
 
 ## Features
 
+- **Two scoring modes** — Full Mode (ball-by-ball in real time) or Record Mode (enter totals at the end of each set)
 - **2-player mode** — standard snooker rules (fouls go directly to the opponent)
 - **3–4 player mode** — players take individual turns; foul penalties are split equally among non-fouling players (rounded up)
 - **Smart player order** — turn order is shuffled each set and never repeats a permutation until all have been used
-- **Foul flow** — select who fouled and on which ball; points are distributed automatically
-- **Persistent scores** — every set and session is saved to a local SQLite database
+- **Per-set ranking points** — at the end of each set, players are ranked by score: 1st gets N pts, last gets 1 pt (N = number of players); ties share the higher rank
+- **Foul flow** — select who fouled and on which ball; points distributed automatically
+- **Session history** — `/history` command to browse all past sessions with standings and per-set breakdowns
+- **Bubble tea debt tracking** — last-place player owes a bubble tea to the winner; `/debt` command to view and settle debts
+- **PostgreSQL persistence** — all sessions, sets, and debts stored in a remote PostgreSQL database
 - **Fully button-driven** — no text commands needed after starting a session
 
 ## Screenshots
@@ -16,15 +20,20 @@ A Discord bot that acts as a digital scoreboard for snooker sessions. Designed f
 ```
 🎱 Snooker Session — 2024-03-06
 ────────────────────────────────
-Total Scores
-  ▶ Alice         47 pts   ← current turn
-    Bob           32 pts
-    Charlie       18 pts
+Ranking Points (1 set done)
+  ▶ Alice          3 rp   ← current turn
+    Bob            2 rp
+    Charlie        1 rp
 
-Set 2 Scores
-    Alice         12
-    Bob            8
-    Charlie        5
+Set 1 Results
+    Alice    80 pts  +3 rp
+    Bob      55 pts  +2 rp
+    Charlie  30 pts  +1 rp
+
+Set 2 (in progress)
+    Alice     12
+    Bob        8
+    Charlie    5
 
 Current Turn: Alice
 ────────────────────────────────
@@ -42,22 +51,31 @@ Current Turn: Alice
 3. Under **OAuth2 → URL Generator**, select scopes: `bot` + `applications.commands`. Under Bot Permissions, select `Send Messages` and `Read Message History`.
 4. Copy your **Bot Token**.
 
-### 2. Install dependencies
+### 2. Set up PostgreSQL
+
+Create a `snooker` schema on your PostgreSQL database. The bot will create all tables automatically on first run:
+
+```sql
+CREATE SCHEMA snooker;
+```
+
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure
+### 4. Configure
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set your bot token:
+Edit `.env`:
 
 ```
 DISCORD_TOKEN=your_bot_token_here
+DATABASE_URL=postgresql://user:password@host:5432/dbname
 ```
 
 Edit `config.py` to set the real names of your 4 players:
@@ -66,7 +84,7 @@ Edit `config.py` to set the real names of your 4 players:
 PLAYERS = ["Alice", "Bob", "Charlie", "Dave"]
 ```
 
-### 4. Run
+### 5. Run
 
 ```bash
 python bot.py
@@ -74,21 +92,54 @@ python bot.py
 
 The bot will print `Logged in as ...` and sync slash commands on startup. Slash commands may take up to an hour to appear globally; for instant availability during testing, [register them to a specific guild](https://discordpy.readthedocs.io/en/stable/interactions/api.html#discord.app_commands.CommandTree.sync).
 
+## Docker
+
+```bash
+docker build -t snooker-bot .
+docker run --env-file .env snooker-bot
+```
+
+## Kubernetes
+
+Create a secret with your credentials, then deploy with a single-replica `Deployment`. Discord bots must not run more than one replica at a time.
+
+```bash
+kubectl create secret generic snooker-bot-secret \
+  --from-literal=DISCORD_TOKEN=your_token \
+  --from-literal=DATABASE_URL=postgresql://user:password@host:5432/dbname
+```
+
+Example `Deployment` snippet:
+
+```yaml
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: snooker-bot
+          image: your-registry/snooker-bot:latest
+          envFrom:
+            - secretRef:
+                name: snooker-bot-secret
+```
+
 ## Usage
 
 ### Starting a session
-
-Use the slash command in any channel the bot has access to:
 
 ```
 /snooker
 ```
 
-The bot posts a player selection message. Toggle players in or out (all 4 are selected by default), then press **▶️ Start Session**.
+Toggle players in or out (all 4 selected by default), press **▶️ Start Session**, then choose a scoring mode:
 
-### Scoring
+- **🎱 Full Mode** — press ball buttons in real time as each ball is potted
+- **📝 Record Mode** — press **📝 Enter Scores** at the end of each set to type in each player's final score
 
-The scoreboard shows the **current player's turn** highlighted with `▶`. Press any ball button to add that ball's points to the current player:
+### Scoring (Full Mode)
+
+The scoreboard shows the **current player's turn** highlighted with `▶`. Press any ball button to add points:
 
 | Button | Points |
 |--------|--------|
@@ -100,45 +151,73 @@ The scoreboard shows the **current player's turn** highlighted with `▶`. Press
 | 🩷 Pink | 6 |
 | ⚫ Black | 7 |
 
-Press **End Turn ↩** when the current player's break ends to pass to the next player.
+Press **End Turn ↩** to pass to the next player.
 
-### Recording a foul
+### Recording a foul (Full Mode)
 
 1. Press **🚫 Foul**
 2. Select the player who committed the foul
 3. Select the ball that was fouled on
 
-The penalty (`max(4, ball value)`) is automatically distributed among the remaining players using ceiling division. For example, a black foul (7 pts) with 3 players awards `⌈7/2⌉ = 4 pts` to each of the 2 non-fouling players.
+The penalty (`max(4, ball value)`) is distributed among the remaining players using ceiling division. For example, a black foul (7 pts) with 3 players awards `⌈7/2⌉ = 4 pts` to each of the 2 non-fouling players.
+
+### Ranking points
+
+At the end of each set, players are awarded ranking points based on their score:
+
+| Finish | Ranking Points (4 players) |
+|--------|--------------------------|
+| 1st | 4 rp |
+| 2nd | 3 rp |
+| 3rd | 2 rp |
+| 4th | 1 rp |
+
+Tied players both receive the higher rank's points. The session leaderboard shows cumulative ranking points across all completed sets.
 
 ### Managing sets
 
-- **➡️ New Set** — saves the current set scores and starts a new set with a freshly shuffled player order
-- **🏁 End Session** — saves the final set, records the session to the database, and displays the final leaderboard
+- **➡️ New Set** — saves the current set and starts a new one with a freshly shuffled player order
+- **🏁 End Session** — saves the final set and displays the overall leaderboard
 
-### Player order (3–4 players)
+### Viewing history
 
-Each set uses a different permutation of the player order. The bot cycles through all possible permutations before repeating any, ensuring fair variety across sets.
+```
+/history
+```
+
+Browse all completed sessions using the **◀ Newer / Older ▶** buttons. Each page shows the final standings and a per-set ranking point breakdown.
+
+### Bubble tea debts
+
+```
+/debt
+```
+
+At the end of every session, the last-place player owes a bubble tea to the first-place player. The `/debt` command shows all outstanding and recently paid debts. Press **✅ Mark as Paid** to settle a debt.
 
 ## Data
 
-Session and set scores are persisted to `data/snooker.db` (SQLite). The file is created automatically on first run.
+All data is stored in the `snooker` schema of your PostgreSQL database.
 
 ```
-sessions  — session id, date, players, start/end timestamps
-sets      — set scores, player order, completion time, linked to session
+snooker.sessions  — session id, date, players, start/end timestamps
+snooker.sets      — set scores, ranking points, player order, per session
+snooker.debts     — bubble tea debts, paid status, per session
 ```
 
 ## Project Structure
 
 ```
 bot.py          Entry point
-config.py       Bot token + player names
+config.py       Bot token, database URL, player names
 engine/
-  score.py      Ball values, foul penalty, distribution logic
+  score.py      Ball values, foul penalty, ranking_points logic
   session.py    Session + set state, permutation cycling
 db/
-  database.py   SQLite persistence (aiosqlite)
+  database.py   PostgreSQL persistence (asyncpg connection pool)
 cogs/
-  snooker.py    All Discord UI: Views, Buttons, /snooker command
-data/           SQLite database file (auto-created, git-ignored)
+  snooker.py    All Discord UI: Views, Buttons, /snooker, /history, /debt
+Dockerfile      Multi-stage build (builder + lean runtime)
+.dockerignore
 ```
+
