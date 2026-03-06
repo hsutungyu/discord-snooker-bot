@@ -14,6 +14,10 @@ class SetState:
     player_order: list[str]
     current_player_idx: int = 0
     scores: dict[str, int] = field(default_factory=dict)
+    scores_finalized: bool = False
+
+    def set_score(self, player: str, score: int):
+        self.scores[player] = score
 
     def current_player(self) -> str:
         return self.player_order[self.current_player_idx]

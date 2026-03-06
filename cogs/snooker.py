@@ -48,8 +48,41 @@ def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
     return embed
 
 
-# ---------------------------------------------------------------------------
-# Scoreboard view
+def build_record_embed(session: SnookerSession) -> discord.Embed:
+    cs = session.current_set
+    sets_done = len(session.completed_sets)
+    set_num = cs.set_number if cs else sets_done
+
+    embed = discord.Embed(
+        title=f"📝 Snooker Session — {session.date} (Record Mode)",
+        color=0x3498DB,
+    )
+    embed.set_footer(text=f"Set {set_num} | {sets_done} set(s) completed")
+
+    totals = session.total_scores()
+    total_lines = [f"  {p:<12} {totals[p]:>4} pts" for p in session.players]
+    embed.add_field(
+        name="Total Scores",
+        value="```\n" + "\n".join(total_lines) + "\n```",
+        inline=False,
+    )
+
+    if cs:
+        if cs.scores_finalized:
+            set_lines = [f"  {p:<12} {cs.scores.get(p, 0):>4}" for p in session.players]
+            status = "✅ Scores entered"
+        else:
+            set_lines = [f"  {p:<12}    —" for p in session.players]
+            status = "⏳ Awaiting score entry"
+        embed.add_field(
+            name=f"Set {cs.set_number} — {status}",
+            value="```\n" + "\n".join(set_lines) + "\n```",
+            inline=False,
+        )
+
+    return embed
+
+
 # ---------------------------------------------------------------------------
 
 class BallButton(discord.ui.Button):
@@ -247,6 +280,164 @@ class FoulBallSelectView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
+# Record mode views
+# ---------------------------------------------------------------------------
+
+class EnterScoresButton(discord.ui.Button):
+    def __init__(self, session: SnookerSession):
+        self._session = session
+        super().__init__(label="📝 Enter Scores", style=discord.ButtonStyle.primary, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(RecordScoreModal(self._session))
+
+
+class RecordNewSetButton(discord.ui.Button):
+    def __init__(self, session: SnookerSession):
+        self._session = session
+        finalized = bool(session.current_set and session.current_set.scores_finalized)
+        super().__init__(
+            label="➡️ New Set",
+            style=discord.ButtonStyle.success,
+            row=0,
+            disabled=not finalized,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        set_data = self._session.save_current_set()
+        if set_data:
+            await save_set(self._session.session_id, set_data)
+        self._session.start_set()
+        await interaction.response.edit_message(
+            embed=build_record_embed(self._session),
+            view=RecordScoreboardView(self._session),
+        )
+
+
+class RecordEndSessionButton(discord.ui.Button):
+    def __init__(self, session: SnookerSession):
+        self._session = session
+        super().__init__(label="🏁 End Session", style=discord.ButtonStyle.danger, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        set_data = self._session.save_current_set()
+        if set_data:
+            await save_set(self._session.session_id, set_data)
+        await end_session(self._session.session_id)
+
+        if self._session.channel_id in active_sessions:
+            del active_sessions[self._session.channel_id]
+
+        totals = self._session.total_scores()
+        sorted_players = sorted(totals.items(), key=lambda x: x[1], reverse=True)
+        medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
+        lines = [
+            f"{medals[i]} {p:<12} {pts:>4} pts"
+            for i, (p, pts) in enumerate(sorted_players)
+        ]
+
+        embed = discord.Embed(title=f"🏁 Session Ended — {self._session.date}", color=0xE74C3C)
+        embed.add_field(
+            name="Final Scores",
+            value="```\n" + "\n".join(lines) + "\n```",
+            inline=False,
+        )
+        embed.add_field(name="Sets Played", value=str(len(self._session.completed_sets)), inline=True)
+        await interaction.response.edit_message(embed=embed, view=None)
+
+
+class RecordScoreboardView(discord.ui.View):
+    def __init__(self, session: SnookerSession):
+        super().__init__(timeout=None)
+        self.add_item(EnterScoresButton(session))
+        self.add_item(RecordNewSetButton(session))
+        self.add_item(RecordEndSessionButton(session))
+
+
+class RecordScoreModal(discord.ui.Modal):
+    def __init__(self, session: SnookerSession):
+        cs = session.current_set
+        super().__init__(title=f"Set {cs.set_number} — Enter Scores" if cs else "Enter Scores")
+        self._session = session
+        self._inputs: dict[str, discord.ui.TextInput] = {}
+        for player in session.players:
+            inp = discord.ui.TextInput(
+                label=player,
+                placeholder="Enter final score (number)",
+                required=True,
+                min_length=1,
+                max_length=5,
+            )
+            self._inputs[player] = inp
+            self.add_item(inp)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        cs = self._session.current_set
+        for player, inp in self._inputs.items():
+            try:
+                score = int(inp.value)
+                if score < 0:
+                    raise ValueError
+                cs.set_score(player, score)
+            except ValueError:
+                await interaction.response.send_message(
+                    f"❌ Invalid score for **{player}**. Please enter a non-negative integer.",
+                    ephemeral=True,
+                )
+                return
+        cs.scores_finalized = True
+        await interaction.response.edit_message(
+            embed=build_record_embed(self._session),
+            view=RecordScoreboardView(self._session),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Mode selection view
+# ---------------------------------------------------------------------------
+
+class FullModeButton(discord.ui.Button):
+    def __init__(self, session: SnookerSession):
+        self._session = session
+        super().__init__(
+            label="🎱 Full Mode (ball-by-ball)",
+            style=discord.ButtonStyle.primary,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(
+            content=None,
+            embed=build_scoreboard_embed(self._session),
+            view=ScoreboardView(self._session),
+        )
+
+
+class RecordModeButton(discord.ui.Button):
+    def __init__(self, session: SnookerSession):
+        self._session = session
+        super().__init__(
+            label="📝 Record Mode (enter totals per set)",
+            style=discord.ButtonStyle.secondary,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(
+            content=None,
+            embed=build_record_embed(self._session),
+            view=RecordScoreboardView(self._session),
+        )
+
+
+class ModeSelectView(discord.ui.View):
+    def __init__(self, session: SnookerSession):
+        super().__init__(timeout=300)
+        self.add_item(FullModeButton(session))
+        self.add_item(RecordModeButton(session))
+
+
+# ---------------------------------------------------------------------------
 # Player selection view (session start)
 # ---------------------------------------------------------------------------
 
@@ -297,9 +488,9 @@ class StartSessionButton(discord.ui.Button):
 
         await save_session(session)
         await interaction.response.edit_message(
-            content=None,
-            embed=build_scoreboard_embed(session),
-            view=ScoreboardView(session),
+            content="Choose scoring mode:",
+            embed=None,
+            view=ModeSelectView(session),
         )
 
 
