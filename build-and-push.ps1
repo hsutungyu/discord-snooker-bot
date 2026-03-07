@@ -3,9 +3,10 @@
 .SYNOPSIS
     Builds the Discord snooker bot Docker image and pushes it to the
     Gitea container registry at git.19371928.xyz.
+    After a successful push the image tag in deploy.yaml is updated.
 
 .PARAMETER Tag
-    Image tag to apply. Defaults to 'latest'.
+    Image tag to apply. Defaults to a UTC timestamp (yyyyMMdd-HHmmss).
 
 .EXAMPLE
     .\build-and-push.ps1
@@ -13,15 +14,16 @@
 #>
 
 param(
-    [string]$Tag = "latest"
+    [string]$Tag = (Get-Date -Format "yyyyMMdd-HHmmss")
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$Registry = "git.19371928.xyz"
+$Registry  = "git.19371928.xyz"
 $ImagePath = "automation/discord-snooker"
 $FullImage = "${Registry}/${ImagePath}:${Tag}"
+$DeployFile = Join-Path $PSScriptRoot "deploy.yaml"
 
 Write-Host "==> Image : $FullImage" -ForegroundColor Cyan
 
@@ -44,30 +46,18 @@ if ($LASTEXITCODE -ne 0) {
     Write-Error "docker build failed."
 }
 
-# Also tag as latest if a specific version was provided
-if ($Tag -ne "latest") {
-    $LatestImage = "${Registry}/${ImagePath}:latest"
-    Write-Host "==> Tagging as $LatestImage ..." -ForegroundColor Cyan
-    docker tag $FullImage $LatestImage
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "docker tag failed."
-    }
-}
-
-# Push versioned tag
+# Push
 Write-Host "==> Pushing $FullImage ..." -ForegroundColor Cyan
 docker push $FullImage
 if ($LASTEXITCODE -ne 0) {
     Write-Error "docker push failed."
 }
 
-# Push latest tag if a version was provided
-if ($Tag -ne "latest") {
-    Write-Host "==> Pushing $LatestImage ..." -ForegroundColor Cyan
-    docker push $LatestImage
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "docker push (latest) failed."
-    }
-}
+# Update the image tag in deploy.yaml
+Write-Host "==> Updating image tag in deploy.yaml ..." -ForegroundColor Cyan
+$content = Get-Content $DeployFile -Raw
+$updated = $content -replace "${Registry}/${ImagePath}:[^\s`"']+", "${FullImage}"
+Set-Content -Path $DeployFile -Value $updated.TrimEnd()
+Write-Host "==> deploy.yaml updated to $FullImage" -ForegroundColor Green
 
 Write-Host "==> Done. Image pushed: $FullImage" -ForegroundColor Green
