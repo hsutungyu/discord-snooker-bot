@@ -10,7 +10,7 @@ from discord.ext import commands
 import config
 from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, foul_penalty, distribute_penalty
 from engine.session import SnookerSession
-from db.database import save_session, save_set, end_session, delete_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid
+from db.database import save_session, save_set, end_session, delete_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid, mark_debt_paid_by_date
 
 log = logging.getLogger(__name__)
 
@@ -800,9 +800,24 @@ class SnookerCog(commands.Cog):
         else:
             await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="debt", description="View and manage bubble tea debts")
-    async def debt(self, interaction: discord.Interaction):
+    @app_commands.command(name="debt", description="View debts, or mark a session's debt as paid")
+    @app_commands.describe(session_date="Date of the session to mark as paid (YYYY-MM-DD)")
+    async def debt(self, interaction: discord.Interaction, session_date: str = None):
         await interaction.response.defer(ephemeral=False)
+
+        if session_date is not None:
+            updated = await mark_debt_paid_by_date(session_date)
+            if updated:
+                await interaction.followup.send(
+                    f"✅ Debt for **{session_date}** marked as paid!"
+                )
+            else:
+                await interaction.followup.send(
+                    f"⚠️ No outstanding debt found for **{session_date}**.",
+                    ephemeral=True,
+                )
+            return
+
         debts = await get_debts()
         embed = build_debt_embed(debts)
         unpaid = [d for d in debts if not d["paid"]]

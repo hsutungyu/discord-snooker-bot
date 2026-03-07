@@ -182,3 +182,17 @@ async def mark_debt_paid(debt_id: int) -> None:
             datetime.now().isoformat(),
             debt_id,
         )
+
+
+async def mark_debt_paid_by_date(session_date: str) -> bool:
+    """Mark the unpaid debt for the given session date as paid. Returns True if a row was updated."""
+    async with _pool.acquire() as conn:
+        result = await conn.execute(
+            f"""
+            UPDATE {SCHEMA}.debts SET paid = TRUE, paid_at = $1
+            WHERE session_date = $2 AND paid = FALSE
+            """,
+            datetime.now().isoformat(),
+            session_date,
+        )
+        return result.split()[-1] != "0"  # "UPDATE N" — N > 0 means a row was updated
