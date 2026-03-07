@@ -10,7 +10,7 @@ from discord.ext import commands
 import config
 from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, foul_penalty, distribute_penalty
 from engine.session import SnookerSession
-from db.database import save_session, save_set, end_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid
+from db.database import save_session, save_set, end_session, delete_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid
 
 log = logging.getLogger(__name__)
 
@@ -212,11 +212,22 @@ class EndSessionButton(discord.ui.Button):
                 await save_set(self._session.session_id, set_data)
         else:
             self._session.current_set = None  # discard empty set
-        await end_session(self._session.session_id)
 
         if self._session.channel_id in active_sessions:
             del active_sessions[self._session.channel_id]
 
+        # If no sets were played at all, silently discard the session
+        if not self._session.completed_sets:
+            await delete_session(self._session.session_id)
+            embed = discord.Embed(
+                title="Session Discarded",
+                description="No scores were recorded. The session has been discarded.",
+                color=0x95A5A6,
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            return
+
+        await end_session(self._session.session_id)
         embed, debt_line = await _build_end_embed(self._session)
         await interaction.response.edit_message(embed=embed, view=None)
 
@@ -367,11 +378,22 @@ class RecordEndSessionButton(discord.ui.Button):
                 await save_set(self._session.session_id, set_data)
         else:
             self._session.current_set = None  # discard unfinished set
-        await end_session(self._session.session_id)
 
         if self._session.channel_id in active_sessions:
             del active_sessions[self._session.channel_id]
 
+        # If no sets were played at all, silently discard the session
+        if not self._session.completed_sets:
+            await delete_session(self._session.session_id)
+            embed = discord.Embed(
+                title="Session Discarded",
+                description="No scores were recorded. The session has been discarded.",
+                color=0x95A5A6,
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            return
+
+        await end_session(self._session.session_id)
         embed, debt_line = await _build_end_embed(self._session)
         await interaction.response.edit_message(embed=embed, view=None)
 

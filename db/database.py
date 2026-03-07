@@ -104,6 +104,13 @@ async def end_session(session_id: str) -> None:
         )
 
 
+async def delete_session(session_id: str) -> None:
+    """Delete a session and its sets (used when a session is ended with no scores)."""
+    async with _pool.acquire() as conn:
+        await conn.execute(f"DELETE FROM {SCHEMA}.sets WHERE session_id = $1", session_id)
+        await conn.execute(f"DELETE FROM {SCHEMA}.sessions WHERE id = $1", session_id)
+
+
 async def get_completed_sessions() -> list[dict]:
     """Return all completed sessions with per-set details, newest first."""
     from engine.score import ranking_points as compute_rp
