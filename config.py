@@ -5,6 +5,7 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+GUILD_ID = int(os.getenv("GUILD_ID")) if os.getenv("GUILD_ID") else None
 
 # Fixed player names — edit these to match your group
 PLAYERS = ["Anson", "Desmond", "Justin", "Tung"]

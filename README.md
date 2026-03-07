@@ -76,7 +76,12 @@ Edit `.env`:
 ```
 DISCORD_TOKEN=your_bot_token_here
 DATABASE_URL=postgresql://user:password@host:5432/dbname
+GUILD_ID=your_discord_server_id
 ```
+
+> **Getting your Guild ID:** Enable Developer Mode in Discord (Settings → Advanced → Developer Mode), then right-click your server icon and select **Copy Server ID**.
+
+> **Why `GUILD_ID`?** Slash commands registered to a specific guild are available instantly to all members. Without it, commands sync globally and can take up to an hour to appear.
 
 Edit `config.py` to set the real names of your 4 players:
 
@@ -138,7 +143,8 @@ A ready-to-use `deploy.yaml` manifest is included. It deploys a single-replica `
 kubectl create secret generic discord-snooker-secret \
   --namespace automation \
   --from-literal=DISCORD_TOKEN=your_token \
-  --from-literal=DATABASE_URL=postgresql://user:password@host:5432/dbname
+  --from-literal=DATABASE_URL=postgresql://user:password@host:5432/dbname \
+  --from-literal=GUILD_ID=your_discord_server_id
 ```
 
 **2. Create the registry pull secret:**

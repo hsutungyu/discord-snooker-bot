@@ -26,8 +26,14 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     try:
-        synced = await bot.tree.sync()
-        log.info("Synced %d slash command(s)", len(synced))
+        if config.GUILD_ID:
+            guild = discord.Object(id=config.GUILD_ID)
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            log.info("Synced %d slash command(s) to guild %d", len(synced), config.GUILD_ID)
+        else:
+            synced = await bot.tree.sync()
+            log.info("Synced %d slash command(s) globally", len(synced))
     except Exception as e:
         log.exception("Failed to sync commands: %s", e)
 

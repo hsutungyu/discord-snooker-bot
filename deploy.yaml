@@ -30,6 +30,11 @@ spec:
                 secretKeyRef:
                   name: discord-snooker-secret
                   key: DATABASE_URL
+            - name: GUILD_ID
+              valueFrom:
+                secretKeyRef:
+                  name: discord-snooker-secret
+                  key: GUILD_ID
           resources:
             requests:
               cpu: 50m
