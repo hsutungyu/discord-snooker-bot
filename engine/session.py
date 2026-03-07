@@ -97,3 +97,11 @@ class SnookerSession:
             for p, rp in s.get("ranking_points", {}).items():
                 totals[p] = totals.get(p, 0) + rp
         return totals
+
+    def total_raw_scores(self) -> dict[str, int]:
+        """Sum of raw snooker scores (points potted) from completed sets — used as tiebreaker."""
+        totals = {p: 0 for p in self.players}
+        for s in self.completed_sets:
+            for p, pts in s.get("scores", {}).items():
+                totals[p] = totals.get(p, 0) + pts
+        return totals

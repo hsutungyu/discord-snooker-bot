@@ -124,6 +124,7 @@ async def get_completed_sessions() -> list[dict]:
 
             sets = []
             ranking_totals: dict[str, int] = {p: 0 for p in session["players"]}
+            score_totals: dict[str, int] = {p: 0 for p in session["players"]}
             for set_row in set_rows:
                 s = dict(set_row)
                 rp = s.get("ranking_points") or {}
@@ -132,10 +133,13 @@ async def get_completed_sessions() -> list[dict]:
                 s["ranking_points"] = rp
                 for p, pts in rp.items():
                     ranking_totals[p] = ranking_totals.get(p, 0) + pts
+                for p, pts in (s.get("scores") or {}).items():
+                    score_totals[p] = score_totals.get(p, 0) + pts
                 sets.append(s)
 
             session["sets"] = sets
             session["ranking_totals"] = ranking_totals
+            session["score_totals"] = score_totals
             result.append(session)
 
         return result

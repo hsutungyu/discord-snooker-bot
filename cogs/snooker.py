@@ -545,7 +545,12 @@ class PlayerSelectView(BaseView):
 async def _build_end_embed(session: SnookerSession):
     """Build the session-ended embed, record the debt, return (embed, debt_line)."""
     totals = session.total_scores()
-    sorted_players = sorted(session.players, key=lambda p: totals.get(p, 0), reverse=True)
+    raw_totals = session.total_raw_scores()
+    sorted_players = sorted(
+        session.players,
+        key=lambda p: (totals.get(p, 0), raw_totals.get(p, 0)),
+        reverse=True,
+    )
     medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
     lines = [
         f"{medals[i]} {p:<12} {totals.get(p, 0):>3} rp"
@@ -596,7 +601,12 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
     embed.set_footer(text=f"Session {page + 1} of {total_pages}  |  {len(sets)} set(s) played")
 
     # Final standings
-    sorted_players = sorted(players, key=lambda p: totals.get(p, 0), reverse=True)
+    score_totals = session.get("score_totals", {})
+    sorted_players = sorted(
+        players,
+        key=lambda p: (totals.get(p, 0), score_totals.get(p, 0)),
+        reverse=True,
+    )
     medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
     standing_lines = [
         f"{medals[i]} {p:<12} {totals.get(p, 0):>3} rp"
@@ -608,14 +618,13 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
         inline=False,
     )
 
-    # Per-set breakdown: ranking points awarded each set
+    # Per-set breakdown: scores in playing order
     if sets:
         set_lines = []
         for s in sets:
-            rp = s.get("ranking_points", {})
-            # Show players sorted by rp this set, descending
-            set_sorted = sorted(players, key=lambda p: rp.get(p, 0), reverse=True)
-            parts = "  ".join(f"{p} +{rp.get(p, 0)}rp" for p in set_sorted)
+            scores = s.get("scores", {})
+            order = s.get("player_order") or players
+            parts = "  ".join(f"{p} {scores.get(p, 0)}" for p in order)
             set_lines.append(f"Set {s['set_number']:>2}: {parts}")
         embed.add_field(
             name="Set Results",
