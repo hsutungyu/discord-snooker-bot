@@ -41,8 +41,12 @@ async def init_db(dsn: str) -> None:
                 player_order JSONB NOT NULL,
                 scores JSONB NOT NULL,
                 ranking_points JSONB,
+                break_history JSONB,
                 completed_at TEXT NOT NULL
             )
+        """)
+        await conn.execute(f"""
+            ALTER TABLE {SCHEMA}.sets ADD COLUMN IF NOT EXISTS break_history JSONB
         """)
         await conn.execute(f"""
             CREATE TABLE IF NOT EXISTS {SCHEMA}.debts (
@@ -83,14 +87,15 @@ async def save_set(session_id: str, set_data: dict) -> None:
         await conn.execute(
             f"""
             INSERT INTO {SCHEMA}.sets
-                (session_id, set_number, player_order, scores, ranking_points, completed_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+                (session_id, set_number, player_order, scores, ranking_points, break_history, completed_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             """,
             session_id,
             set_data["set_number"],
             set_data["player_order"],
             set_data["scores"],
             set_data.get("ranking_points", {}),
+            set_data.get("breaks", {}),
             datetime.now().isoformat(),
         )
 
@@ -138,6 +143,7 @@ async def get_completed_sessions() -> list[dict]:
                 if not rp:
                     rp = compute_rp(s["scores"], session["players"])
                 s["ranking_points"] = rp
+                s["breaks"] = s.get("break_history") or {}
                 for p, pts in rp.items():
                     ranking_totals[p] = ranking_totals.get(p, 0) + pts
                 for p, pts in (s.get("scores") or {}).items():

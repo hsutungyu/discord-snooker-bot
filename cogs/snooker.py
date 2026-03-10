@@ -56,7 +56,7 @@ def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
         inline=False,
     )
 
-    # Last completed set: show raw scores + ranking points awarded
+    # Last completed set: show raw scores + ranking points + break history
     if session.last_completed_set:
         lcs = session.last_completed_set
         rp = lcs.get("ranking_points", {})
@@ -64,6 +64,14 @@ def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
             f"  {p:<12} {lcs['scores'].get(p, 0):>4} pts  +{rp.get(p, 0)} rp"
             for p in session.players
         ]
+        breaks = lcs.get("breaks", {})
+        if breaks:
+            last_lines.append("")
+            for p, player_breaks in breaks.items():
+                for brk in player_breaks:
+                    total = sum(BALL_VALUES[b] for b in brk)
+                    balls_str = " ".join(BALL_EMOJIS[b] for b in brk)
+                    last_lines.append(f"  {p}: {balls_str} ({total})")
         embed.add_field(
             name=f"Set {lcs['set_number']} Results",
             value="```\n" + "\n".join(last_lines) + "\n```",
@@ -77,7 +85,13 @@ def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
             value="```\n" + "\n".join(set_lines) + "\n```",
             inline=False,
         )
-        embed.add_field(name="Current Turn", value=f"**{cs.current_player()}**", inline=True)
+        current = cs.current_player()
+        turn_val = f"**{current}**"
+        if cs.current_break:
+            total = cs.current_break_total()
+            balls_str = " ".join(BALL_EMOJIS[b] for b in cs.current_break)
+            turn_val += f"\nBreak: {balls_str} ({total})"
+        embed.add_field(name="Current Turn", value=turn_val, inline=True)
 
     return embed
 
@@ -149,7 +163,7 @@ class BallButton(discord.ui.Button):
         if not cs:
             await interaction.response.defer()
             return
-        cs.add_score(cs.current_player(), BALL_VALUES[self._ball])
+        cs.add_score(cs.current_player(), self._ball)
         await interaction.response.edit_message(
             embed=build_scoreboard_embed(self._session),
             view=ScoreboardView(self._session),
@@ -640,7 +654,7 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
         inline=False,
     )
 
-    # Per-set breakdown: scores in playing order
+    # Per-set breakdown: scores in playing order + breaks
     if sets:
         set_lines = []
         for s in sets:
@@ -648,6 +662,13 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
             order = s.get("player_order") or players
             parts = "  ".join(f"{p} {scores.get(p, 0)}" for p in order)
             set_lines.append(f"Set {s['set_number']:>2}: {parts}")
+            breaks = s.get("breaks", {})
+            if breaks:
+                for p, player_breaks in breaks.items():
+                    for brk in player_breaks:
+                        total = sum(BALL_VALUES[b] for b in brk)
+                        balls_str = " ".join(BALL_EMOJIS[b] for b in brk)
+                        set_lines.append(f"         {p}: {balls_str} ({total})")
         embed.add_field(
             name="Set Results",
             value="```\n" + "\n".join(set_lines) + "\n```",
