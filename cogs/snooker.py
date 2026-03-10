@@ -177,12 +177,25 @@ class EndTurnButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         cs = self._session.current_set
+        alert_msg = None
         if cs:
+            prev_player = cs.current_player()
+            prev_break = list(cs.current_break)  # snapshot before flush
             cs.next_player()
+            if prev_break:
+                total = sum(BALL_VALUES[b] for b in prev_break)
+                if total >= config.BREAK_ALERT_THRESHOLD:
+                    balls_str = " ".join(BALL_EMOJIS[b] for b in prev_break)
+                    alert_msg = (
+                        f"🎯 **Break alert!** **{prev_player}** scored a break of **{total}**!\n"
+                        f"{balls_str}"
+                    )
         await interaction.response.edit_message(
             embed=build_scoreboard_embed(self._session),
             view=ScoreboardView(self._session),
         )
+        if alert_msg:
+            await interaction.followup.send(alert_msg)
 
 
 class FoulButton(discord.ui.Button):
