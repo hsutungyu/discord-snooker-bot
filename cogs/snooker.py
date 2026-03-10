@@ -37,6 +37,21 @@ class BaseView(discord.ui.View):
 # Embed builder
 # ---------------------------------------------------------------------------
 
+def _format_event(ev: dict) -> str:
+    """Format a single set event into a compact display line."""
+    if ev["type"] == "ball":
+        return f"{ev['seq']:>3}. {ev['player']:<12} {BALL_EMOJIS[ev['ball']]} {ev['ball'].capitalize()} (+{ev['value']})"
+    if ev["type"] == "foul":
+        recipients = ", ".join(ev["recipients"])
+        return (
+            f"{ev['seq']:>3}. 🚫 {ev['fouler']:<11} foul on {BALL_EMOJIS[ev['ball']]} "
+            f"{ev['ball'].capitalize()} (pen {ev['penalty']}, +{ev['per_player']} ea → {recipients})"
+        )
+    if ev["type"] == "end_turn":
+        return f"{ev['seq']:>3}. {'↩ End turn':<12} ({ev['player']})"
+    return f"{ev['seq']:>3}. {ev}"
+
+
 def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
     cs = session.current_set
     sets_done = len(session.completed_sets)
@@ -92,6 +107,18 @@ def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
             balls_str = " ".join(BALL_EMOJIS[b] for b in cs.current_break)
             turn_val += f"\nBreak: {balls_str} ({total})"
         embed.add_field(name="Current Turn", value=turn_val, inline=True)
+
+        # Live event feed — last 10 events
+        if cs.events:
+            recent = cs.events[-10:]
+            feed_lines = [_format_event(e) for e in recent]
+            if len(cs.events) > 10:
+                feed_lines.insert(0, f"… ({len(cs.events) - 10} earlier events)")
+            embed.add_field(
+                name="📋 Set Log",
+                value="```\n" + "\n".join(feed_lines) + "\n```",
+                inline=False,
+            )
 
     return embed
 
@@ -680,7 +707,7 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
         inline=False,
     )
 
-    # Per-set breakdown: scores in playing order + breaks
+    # Per-set breakdown: scores in playing order + breaks + full event log
     if sets:
         set_lines = []
         for s in sets:
@@ -700,6 +727,21 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
             value="```\n" + "\n".join(set_lines) + "\n```",
             inline=False,
         )
+
+        # Full event log per set
+        for s in sets:
+            events = s.get("events") or []
+            if events:
+                event_lines = [_format_event(e) for e in events]
+                # Discord field value limit is 1024 chars — truncate gracefully
+                value = "\n".join(event_lines)
+                if len(value) > 990:
+                    value = value[:990] + "\n…"
+                embed.add_field(
+                    name=f"📋 Set {s['set_number']} Log",
+                    value="```\n" + value + "\n```",
+                    inline=False,
+                )
 
     return embed
 

@@ -5,7 +5,7 @@ from itertools import permutations
 from typing import Optional
 from dataclasses import dataclass, field
 
-from engine.score import distribute_penalty, ranking_points
+from engine.score import distribute_penalty, ranking_points, foul_penalty
 
 
 @dataclass
@@ -18,6 +18,11 @@ class SetState:
     # break tracking: current live turn balls, and completed breaks per player
     current_break: list[str] = field(default_factory=list)
     breaks: dict[str, list[list[str]]] = field(default_factory=dict)
+    # chronological event log for this set
+    events: list[dict] = field(default_factory=list)
+
+    def _next_seq(self) -> int:
+        return len(self.events) + 1
 
     def set_score(self, player: str, score: int):
         self.scores[player] = score
@@ -26,18 +31,21 @@ class SetState:
         return self.player_order[self.current_player_idx]
 
     def next_player(self):
-        """Advance turn, flushing the current break into the outgoing player's break history."""
+        """Advance turn, flushing the current break and logging an end_turn event."""
         player = self.current_player()
         if self.current_break:
             self.breaks.setdefault(player, []).append(list(self.current_break))
             self.current_break = []
+        self.events.append({"seq": self._next_seq(), "type": "end_turn", "player": player})
         self.current_player_idx = (self.current_player_idx + 1) % len(self.player_order)
 
     def add_score(self, player: str, ball: str):
-        """Add a ball to the current player's score and live break."""
+        """Add a ball to the current player's score, live break, and event log."""
         from engine.score import BALL_VALUES
-        self.scores[player] = self.scores.get(player, 0) + BALL_VALUES[ball]
+        value = BALL_VALUES[ball]
+        self.scores[player] = self.scores.get(player, 0) + value
         self.current_break.append(ball)
+        self.events.append({"seq": self._next_seq(), "type": "ball", "player": player, "ball": ball, "value": value})
 
     def current_break_total(self) -> int:
         from engine.score import BALL_VALUES
@@ -49,9 +57,18 @@ class SetState:
             self.breaks.setdefault(fouling_player, []).append(list(self.current_break))
             self.current_break = []
         per_player = distribute_penalty(ball, len(all_players))
-        for p in all_players:
-            if p != fouling_player:
-                self.scores[p] = self.scores.get(p, 0) + per_player
+        recipients = [p for p in all_players if p != fouling_player]
+        for p in recipients:
+            self.scores[p] = self.scores.get(p, 0) + per_player
+        self.events.append({
+            "seq": self._next_seq(),
+            "type": "foul",
+            "fouler": fouling_player,
+            "ball": ball,
+            "penalty": foul_penalty(ball),
+            "per_player": per_player,
+            "recipients": recipients,
+        })
 
     def flush_break(self):
         """Save any in-progress break before the set ends."""
@@ -112,6 +129,7 @@ class SnookerSession:
             "scores": dict(self.current_set.scores),
             "ranking_points": rp,
             "breaks": dict(self.current_set.breaks),
+            "events": list(self.current_set.events),
         }
         self.completed_sets.append(result)
         self.last_completed_set = result
