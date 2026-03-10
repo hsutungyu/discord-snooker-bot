@@ -820,8 +820,7 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
 
 
 class HistoryPrevButton(discord.ui.Button):
-    def __init__(self, sessions: list[dict], page: int):
-        self._sessions = sessions
+    def __init__(self, page: int, total: int):
         self._page = page
         super().__init__(
             label="◀ Newer",
@@ -831,37 +830,40 @@ class HistoryPrevButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         new_page = self._page - 1
-        await interaction.response.edit_message(
-            embed=build_history_embed(self._sessions, new_page),
-            view=HistoryView(self._sessions, new_page),
+        sessions = await get_completed_sessions()
+        await interaction.edit_original_response(
+            embed=build_history_embed(sessions, new_page),
+            view=HistoryView(new_page, len(sessions)),
         )
 
 
 class HistoryNextButton(discord.ui.Button):
-    def __init__(self, sessions: list[dict], page: int):
-        self._sessions = sessions
+    def __init__(self, page: int, total: int):
         self._page = page
         super().__init__(
             label="Older ▶",
             style=discord.ButtonStyle.secondary,
-            disabled=page >= len(sessions) - 1,
+            disabled=page >= total - 1,
             row=0,
         )
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         new_page = self._page + 1
-        await interaction.response.edit_message(
-            embed=build_history_embed(self._sessions, new_page),
-            view=HistoryView(self._sessions, new_page),
+        sessions = await get_completed_sessions()
+        await interaction.edit_original_response(
+            embed=build_history_embed(sessions, new_page),
+            view=HistoryView(new_page, len(sessions)),
         )
 
 
 class HistoryView(BaseView):
-    def __init__(self, sessions: list[dict], page: int = 0):
-        super().__init__(timeout=120)
-        self.add_item(HistoryPrevButton(sessions, page))
-        self.add_item(HistoryNextButton(sessions, page))
+    def __init__(self, page: int = 0, total: int = 0):
+        super().__init__(timeout=None)
+        self.add_item(HistoryPrevButton(page, total))
+        self.add_item(HistoryNextButton(page, total))
 
 
 # ---------------------------------------------------------------------------
@@ -958,7 +960,7 @@ class SnookerCog(commands.Cog):
         sessions = await get_completed_sessions()
         embed = build_history_embed(sessions, 0)
         if sessions:
-            await interaction.followup.send(embed=embed, view=HistoryView(sessions, 0))
+            await interaction.followup.send(embed=embed, view=HistoryView(0, len(sessions)))
         else:
             await interaction.followup.send(embed=embed)
 
