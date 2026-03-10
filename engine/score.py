@@ -40,7 +40,7 @@ def distribute_penalty(ball: str, total_players: int) -> int:
 def ranking_points(scores: dict[str, int], players: list[str]) -> dict[str, int]:
     """
     Convert set scores into ranking points.
-    N players → 1st gets N pts, last gets 1 pt (N, N-1, …, 1).
+    N players → 1st gets N-1 pts, last gets 0 pt (N-1, N-2, …, 0).
     Tied players receive the higher rank's points; subsequent ranks are skipped
     (standard competition / Olympic ranking).
     """
@@ -54,7 +54,7 @@ def ranking_points(scores: dict[str, int], players: list[str]) -> dict[str, int]
         j = i + 1
         while j < n and scores.get(sorted_players[j], 0) == tied_score:
             j += 1
-        pts = n - rank + 1
+        pts = n - rank
         for k in range(i, j):
             result[sorted_players[k]] = pts
         rank += (j - i)
