@@ -20,6 +20,7 @@ class SetState:
     breaks: dict[str, list[list[str]]] = field(default_factory=dict)
     # chronological event log for this set
     events: list[dict] = field(default_factory=list)
+    started_at: datetime = field(default_factory=datetime.now)
 
     def _next_seq(self) -> int:
         return len(self.events) + 1
@@ -123,6 +124,8 @@ class SnookerSession:
             return {}
         self.current_set.flush_break()
         rp = ranking_points(self.current_set.scores, self.players)
+        ended_at = datetime.now()
+        duration_secs = int((ended_at - self.current_set.started_at).total_seconds())
         result = {
             "set_number": self.current_set.set_number,
             "player_order": self.current_set.player_order,
@@ -130,6 +133,7 @@ class SnookerSession:
             "ranking_points": rp,
             "breaks": dict(self.current_set.breaks),
             "events": list(self.current_set.events),
+            "duration_secs": duration_secs,
         }
         self.completed_sets.append(result)
         self.last_completed_set = result

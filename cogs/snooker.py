@@ -52,6 +52,11 @@ def _format_event(ev: dict) -> str:
     return f"{ev['seq']:>3}. {ev}"
 
 
+def _fmt_duration(secs: int) -> str:
+    m, s = divmod(secs, 60)
+    return f"{m}m {s:02d}s"
+
+
 def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
     cs = session.current_set
     sets_done = len(session.completed_sets)
@@ -79,6 +84,9 @@ def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
             f"  {p:<12} {lcs['scores'].get(p, 0):>4} pts  +{rp.get(p, 0)} rp"
             for p in session.players
         ]
+        dur = lcs.get("duration_secs")
+        if dur is not None:
+            last_lines.append(f"  ⏱ Duration: {_fmt_duration(dur)}")
         breaks = lcs.get("breaks", {})
         if breaks:
             last_lines.append("")
@@ -714,7 +722,9 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
             scores = s.get("scores", {})
             order = s.get("player_order") or players
             parts = "  ".join(f"{p} {scores.get(p, 0)}" for p in order)
-            set_lines.append(f"Set {s['set_number']:>2}: {parts}")
+            dur = s.get("duration_secs")
+            dur_str = f"  ⏱{_fmt_duration(dur)}" if dur is not None else ""
+            set_lines.append(f"Set {s['set_number']:>2}: {parts}{dur_str}")
             breaks = s.get("breaks", {})
             if breaks:
                 for p, player_breaks in breaks.items():
