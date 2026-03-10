@@ -205,8 +205,8 @@ class FoulButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         embed = build_scoreboard_embed(self._session)
-        embed.add_field(name="Foul — Step 1", value="Who committed the foul?", inline=False)
-        await interaction.response.edit_message(embed=embed, view=FoulPlayerSelectView(self._session))
+        embed.add_field(name="🚫 Foul", value="Select the fouling player and ball, then confirm.", inline=False)
+        await interaction.response.edit_message(embed=embed, view=FoulSelectView(self._session))
 
 
 class NewSetButton(discord.ui.Button):
@@ -271,89 +271,102 @@ class ScoreboardView(BaseView):
 
 
 # ---------------------------------------------------------------------------
-# Foul flow views
+# Foul flow — single-step select view
 # ---------------------------------------------------------------------------
 
-class CancelFoulButton(discord.ui.Button):
-    def __init__(self, session: SnookerSession, row: int = 1):
-        self._session = session
-        super().__init__(label="Cancel", style=discord.ButtonStyle.secondary, row=row)
+class FoulSelectView(BaseView):
+    """One message: pick fouling player + ball, then confirm. No navigation needed."""
 
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.edit_message(
-            embed=build_scoreboard_embed(self._session),
-            view=ScoreboardView(self._session),
-        )
-
-
-class FoulPlayerButton(discord.ui.Button):
-    def __init__(self, player: str, session: SnookerSession):
-        self._player = player
-        self._session = session
-        super().__init__(label=player, style=discord.ButtonStyle.secondary, row=0)
-
-    async def callback(self, interaction: discord.Interaction):
-        embed = build_scoreboard_embed(self._session)
-        embed.add_field(
-            name="Foul — Step 2",
-            value=f"**{self._player}** fouled. On which ball?",
-            inline=False,
-        )
-        await interaction.response.edit_message(
-            embed=embed,
-            view=FoulBallSelectView(self._session, self._player),
-        )
-
-
-class FoulPlayerSelectView(BaseView):
-    def __init__(self, session: SnookerSession):
+    def __init__(self, session: SnookerSession, fouling_player: str | None = None, ball: str | None = None):
         super().__init__(timeout=None)
-        for p in session.players:
-            self.add_item(FoulPlayerButton(p, session))
-        self.add_item(CancelFoulButton(session, row=1))
-
-
-class FoulBallButton(discord.ui.Button):
-    def __init__(self, ball: str, session: SnookerSession, fouling_player: str):
-        self._ball = ball
         self._session = session
-        self._fouling_player = fouling_player
-        penalty = foul_penalty(ball)
-        row = 0 if ball in ("red", "yellow", "green", "brown", "blue") else 1
-        super().__init__(
-            label=f"{BALL_EMOJIS[ball]} {ball.capitalize()} ({penalty})",
-            style=discord.ButtonStyle.secondary,
-            row=row,
-        )
+        self.fouling_player = fouling_player
+        self.ball = ball
+        self._build()
 
-    async def callback(self, interaction: discord.Interaction):
+    def _build(self):
+        self.clear_items()
+
+        player_select = discord.ui.Select(
+            placeholder="Who fouled?" if not self.fouling_player else f"Fouler: {self.fouling_player}",
+            options=[
+                discord.SelectOption(label=p, value=p, default=(p == self.fouling_player))
+                for p in self._session.players
+            ],
+            row=0,
+        )
+        player_select.callback = self._on_player_select
+        self.add_item(player_select)
+
+        ball_select = discord.ui.Select(
+            placeholder="Which ball?" if not self.ball else f"Ball: {self.ball.capitalize()}",
+            options=[
+                discord.SelectOption(
+                    label=f"{ball.capitalize()} (penalty {foul_penalty(ball)})",
+                    value=ball,
+                    emoji=BALL_EMOJIS[ball],
+                    default=(ball == self.ball),
+                )
+                for ball in BALLS
+            ],
+            row=1,
+        )
+        ball_select.callback = self._on_ball_select
+        self.add_item(ball_select)
+
+        confirm = discord.ui.Button(
+            label="✅ Apply Foul",
+            style=discord.ButtonStyle.danger,
+            disabled=not (self.fouling_player and self.ball),
+            row=2,
+        )
+        confirm.callback = self._on_confirm
+        self.add_item(confirm)
+
+        cancel = discord.ui.Button(
+            label="Cancel",
+            style=discord.ButtonStyle.secondary,
+            row=2,
+        )
+        cancel.callback = self._on_cancel
+        self.add_item(cancel)
+
+    async def _on_player_select(self, interaction: discord.Interaction):
+        self.fouling_player = interaction.data["values"][0]
+        self._build()
+        await interaction.response.edit_message(view=self)
+
+    async def _on_ball_select(self, interaction: discord.Interaction):
+        self.ball = interaction.data["values"][0]
+        self._build()
+        await interaction.response.edit_message(view=self)
+
+    async def _on_confirm(self, interaction: discord.Interaction):
         cs = self._session.current_set
         if cs:
-            cs.apply_foul(self._fouling_player, self._ball, self._session.players)
+            cs.apply_foul(self.fouling_player, self.ball, self._session.players)
 
-        penalty = foul_penalty(self._ball)
-        per_player = distribute_penalty(self._ball, len(self._session.players))
+        penalty = foul_penalty(self.ball)
+        per_player = distribute_penalty(self.ball, len(self._session.players))
         n_remaining = len(self._session.players) - 1
 
         embed = build_scoreboard_embed(self._session)
         embed.add_field(
             name="✅ Foul Applied",
             value=(
-                f"**{self._fouling_player}** fouled on "
-                f"{BALL_EMOJIS[self._ball]} {self._ball.capitalize()} (penalty {penalty}). "
+                f"**{self.fouling_player}** fouled on "
+                f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
                 f"+{per_player} pts to each of {n_remaining} other player(s)."
             ),
             inline=False,
         )
         await interaction.response.edit_message(embed=embed, view=ScoreboardView(self._session))
 
-
-class FoulBallSelectView(BaseView):
-    def __init__(self, session: SnookerSession, fouling_player: str):
-        super().__init__(timeout=None)
-        for ball in BALLS:
-            self.add_item(FoulBallButton(ball, session, fouling_player))
-        self.add_item(CancelFoulButton(session, row=2))
+    async def _on_cancel(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(
+            embed=build_scoreboard_embed(self._session),
+            view=ScoreboardView(self._session),
+        )
 
 
 # ---------------------------------------------------------------------------
