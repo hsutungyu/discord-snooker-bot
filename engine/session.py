@@ -21,6 +21,33 @@ class SetState:
     # chronological event log for this set
     events: list[dict] = field(default_factory=list)
     started_at: datetime = field(default_factory=datetime.now)
+    # undo snapshots (capped at 20)
+    _undo_stack: list[dict] = field(default_factory=list)
+
+    def _save_snapshot(self):
+        self._undo_stack.append({
+            "scores": dict(self.scores),
+            "current_break": list(self.current_break),
+            "breaks": {p: [list(b) for b in brks] for p, brks in self.breaks.items()},
+            "events": list(self.events),
+            "current_player_idx": self.current_player_idx,
+        })
+        if len(self._undo_stack) > 20:
+            self._undo_stack.pop(0)
+
+    def can_undo(self) -> bool:
+        return bool(self._undo_stack)
+
+    def undo(self) -> bool:
+        if not self._undo_stack:
+            return False
+        snap = self._undo_stack.pop()
+        self.scores = snap["scores"]
+        self.current_break = snap["current_break"]
+        self.breaks = snap["breaks"]
+        self.events = snap["events"]
+        self.current_player_idx = snap["current_player_idx"]
+        return True
 
     def _next_seq(self) -> int:
         return len(self.events) + 1
@@ -33,6 +60,7 @@ class SetState:
 
     def next_player(self):
         """Advance turn, flushing the current break and logging an end_turn event."""
+        self._save_snapshot()
         player = self.current_player()
         if self.current_break:
             self.breaks.setdefault(player, []).append(list(self.current_break))
@@ -42,6 +70,7 @@ class SetState:
 
     def add_score(self, player: str, ball: str):
         """Add a ball to the current player's score, live break, and event log."""
+        self._save_snapshot()
         from engine.score import BALL_VALUES
         value = BALL_VALUES[ball]
         self.scores[player] = self.scores.get(player, 0) + value
@@ -53,6 +82,7 @@ class SetState:
         return sum(BALL_VALUES[b] for b in self.current_break)
 
     def apply_foul(self, fouling_player: str, ball: str, all_players: list[str]):
+        self._save_snapshot()
         # A foul ends the fouling player's break
         if self.current_break:
             self.breaks.setdefault(fouling_player, []).append(list(self.current_break))

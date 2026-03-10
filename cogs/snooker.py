@@ -294,6 +294,27 @@ class EndSessionButton(discord.ui.Button):
         await interaction.response.edit_message(embed=embed, view=None)
 
 
+class UndoButton(discord.ui.Button):
+    def __init__(self, session: SnookerSession):
+        self._session = session
+        cs = session.current_set
+        super().__init__(
+            label="↩ Undo",
+            style=discord.ButtonStyle.secondary,
+            row=2,
+            disabled=not (cs and cs.can_undo()),
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        cs = self._session.current_set
+        if cs:
+            cs.undo()
+        await interaction.response.edit_message(
+            embed=build_scoreboard_embed(self._session),
+            view=ScoreboardView(self._session),
+        )
+
+
 class ScoreboardView(BaseView):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=None)
@@ -303,6 +324,7 @@ class ScoreboardView(BaseView):
         self.add_item(FoulButton(session))
         self.add_item(NewSetButton(session))
         self.add_item(EndSessionButton(session))
+        self.add_item(UndoButton(session))
 
 
 # ---------------------------------------------------------------------------
