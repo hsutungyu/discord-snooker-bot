@@ -273,30 +273,10 @@ class EndSessionButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer()
         async with self._session._lock:
-            cs = self._session.current_set
-            if cs and any(v > 0 for v in cs.scores.values()):
-                set_data = self._session.save_current_set()
-                if set_data:
-                    await save_set(self._session.session_id, set_data)
-            else:
-                self._session.current_set = None
-
-            if self._session.channel_id in active_sessions:
-                del active_sessions[self._session.channel_id]
-
-            if not self._session.completed_sets:
-                await delete_session(self._session.session_id)
-                embed = discord.Embed(
-                    title="Session Discarded",
-                    description="No scores were recorded. The session has been discarded.",
-                    color=0x95A5A6,
-                )
-                await interaction.edit_original_response(embed=embed, view=None)
-                return
-
-            await end_session(self._session.session_id)
-            embed, _ = await _build_end_embed(self._session)
-        await interaction.edit_original_response(embed=embed, view=None)
+            embed = build_scoreboard_embed(self._session)
+            embed.add_field(name="⚠️ End Session?", value="Are you sure you want to end the session?", inline=False)
+            view = ConfirmEndSessionView(self._session, mode="full")
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 class UndoButton(discord.ui.Button):
@@ -331,6 +311,75 @@ class ScoreboardView(BaseView):
         self.add_item(NewSetButton(session))
         self.add_item(EndSessionButton(session))
         self.add_item(UndoButton(session))
+
+
+# ---------------------------------------------------------------------------
+# End session confirmation view (shared by full and record mode)
+# ---------------------------------------------------------------------------
+
+class ConfirmEndSessionView(BaseView):
+    """Shows Confirm / Cancel before actually ending the session."""
+
+    def __init__(self, session: SnookerSession, mode: str = "full"):
+        super().__init__(timeout=None)
+        self._session = session
+        self._mode = mode  # "full" or "record"
+
+        confirm = discord.ui.Button(label="✅ Yes, end session", style=discord.ButtonStyle.danger, row=0)
+        confirm.callback = self._on_confirm
+        self.add_item(confirm)
+
+        cancel = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary, row=0)
+        cancel.callback = self._on_cancel
+        self.add_item(cancel)
+
+    async def _on_confirm(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        async with self._session._lock:
+            if self._mode == "full":
+                cs = self._session.current_set
+                if cs and any(v > 0 for v in cs.scores.values()):
+                    set_data = self._session.save_current_set()
+                    if set_data:
+                        await save_set(self._session.session_id, set_data)
+                else:
+                    self._session.current_set = None
+            else:  # record mode
+                cs = self._session.current_set
+                if cs and cs.scores_finalized:
+                    set_data = self._session.save_current_set()
+                    if set_data:
+                        await save_set(self._session.session_id, set_data)
+                else:
+                    self._session.current_set = None
+
+            if self._session.channel_id in active_sessions:
+                del active_sessions[self._session.channel_id]
+
+            if not self._session.completed_sets:
+                await delete_session(self._session.session_id)
+                embed = discord.Embed(
+                    title="Session Discarded",
+                    description="No scores were recorded. The session has been discarded.",
+                    color=0x95A5A6,
+                )
+                await interaction.edit_original_response(embed=embed, view=None)
+                return
+
+            await end_session(self._session.session_id)
+            embed, _ = await _build_end_embed(self._session)
+        await interaction.edit_original_response(embed=embed, view=None)
+
+    async def _on_cancel(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        async with self._session._lock:
+            if self._mode == "full":
+                embed = build_scoreboard_embed(self._session)
+                view = ScoreboardView(self._session)
+            else:
+                embed = build_record_embed(self._session)
+                view = RecordScoreboardView(self._session)
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 # ---------------------------------------------------------------------------
@@ -479,32 +528,12 @@ class RecordEndSessionButton(discord.ui.Button):
         super().__init__(label="🏁 End Session", style=discord.ButtonStyle.danger, row=0)
 
     async def callback(self, interaction: discord.Interaction):
-        # Only save the current set if scores were actually entered
-        cs = self._session.current_set
-        if cs and cs.scores_finalized:
-            set_data = self._session.save_current_set()
-            if set_data:
-                await save_set(self._session.session_id, set_data)
-        else:
-            self._session.current_set = None  # discard unfinished set
-
-        if self._session.channel_id in active_sessions:
-            del active_sessions[self._session.channel_id]
-
-        # If no sets were played at all, silently discard the session
-        if not self._session.completed_sets:
-            await delete_session(self._session.session_id)
-            embed = discord.Embed(
-                title="Session Discarded",
-                description="No scores were recorded. The session has been discarded.",
-                color=0x95A5A6,
-            )
-            await interaction.response.edit_message(embed=embed, view=None)
-            return
-
-        await end_session(self._session.session_id)
-        embed, debt_line = await _build_end_embed(self._session)
-        await interaction.response.edit_message(embed=embed, view=None)
+        await interaction.response.defer()
+        async with self._session._lock:
+            embed = build_record_embed(self._session)
+            embed.add_field(name="⚠️ End Session?", value="Are you sure you want to end the session?", inline=False)
+            view = ConfirmEndSessionView(self._session, mode="record")
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 class RecordScoreboardView(BaseView):
