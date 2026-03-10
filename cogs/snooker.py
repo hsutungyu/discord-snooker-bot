@@ -194,15 +194,15 @@ class BallButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         cs = self._session.current_set
         if not cs:
-            await interaction.response.defer()
             return
-        cs.add_score(cs.current_player(), self._ball)
-        await interaction.response.edit_message(
-            embed=build_scoreboard_embed(self._session),
-            view=ScoreboardView(self._session),
-        )
+        async with self._session._lock:
+            cs.add_score(cs.current_player(), self._ball)
+            embed = build_scoreboard_embed(self._session)
+            view = ScoreboardView(self._session)
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 class EndTurnButton(discord.ui.Button):
@@ -211,24 +211,25 @@ class EndTurnButton(discord.ui.Button):
         super().__init__(label="End Turn ↩", style=discord.ButtonStyle.primary, row=1)
 
     async def callback(self, interaction: discord.Interaction):
-        cs = self._session.current_set
+        await interaction.response.defer()
         alert_msg = None
-        if cs:
-            prev_player = cs.current_player()
-            prev_break = list(cs.current_break)  # snapshot before flush
-            cs.next_player()
-            if prev_break:
-                total = sum(BALL_VALUES[b] for b in prev_break)
-                if total >= config.BREAK_ALERT_THRESHOLD:
-                    balls_str = " ".join(BALL_EMOJIS[b] for b in prev_break)
-                    alert_msg = (
-                        f"🎯 **Break alert!** **{prev_player}** scored a break of **{total}**!\n"
-                        f"{balls_str}"
-                    )
-        await interaction.response.edit_message(
-            embed=build_scoreboard_embed(self._session),
-            view=ScoreboardView(self._session),
-        )
+        async with self._session._lock:
+            cs = self._session.current_set
+            if cs:
+                prev_player = cs.current_player()
+                prev_break = list(cs.current_break)
+                cs.next_player()
+                if prev_break:
+                    total = sum(BALL_VALUES[b] for b in prev_break)
+                    if total >= config.BREAK_ALERT_THRESHOLD:
+                        balls_str = " ".join(BALL_EMOJIS[b] for b in prev_break)
+                        alert_msg = (
+                            f"🎯 **Break alert!** **{prev_player}** scored a break of **{total}**!\n"
+                            f"{balls_str}"
+                        )
+            embed = build_scoreboard_embed(self._session)
+            view = ScoreboardView(self._session)
+        await interaction.edit_original_response(embed=embed, view=view)
         if alert_msg:
             await interaction.followup.send(alert_msg)
 
@@ -239,9 +240,12 @@ class FoulButton(discord.ui.Button):
         super().__init__(label="🚫 Foul", style=discord.ButtonStyle.danger, row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        embed = build_scoreboard_embed(self._session)
-        embed.add_field(name="🚫 Foul", value="Select the fouling player and ball, then confirm.", inline=False)
-        await interaction.response.edit_message(embed=embed, view=FoulSelectView(self._session))
+        await interaction.response.defer()
+        async with self._session._lock:
+            embed = build_scoreboard_embed(self._session)
+            embed.add_field(name="🚫 Foul", value="Select the fouling player and ball, then confirm.", inline=False)
+            view = FoulSelectView(self._session)
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 class NewSetButton(discord.ui.Button):
@@ -250,14 +254,15 @@ class NewSetButton(discord.ui.Button):
         super().__init__(label="➡️ New Set", style=discord.ButtonStyle.success, row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        set_data = self._session.save_current_set()
-        if set_data:
-            await save_set(self._session.session_id, set_data)
-        self._session.start_set()
-        await interaction.response.edit_message(
-            embed=build_scoreboard_embed(self._session),
-            view=ScoreboardView(self._session),
-        )
+        await interaction.response.defer()
+        async with self._session._lock:
+            set_data = self._session.save_current_set()
+            if set_data:
+                await save_set(self._session.session_id, set_data)
+            self._session.start_set()
+            embed = build_scoreboard_embed(self._session)
+            view = ScoreboardView(self._session)
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 class EndSessionButton(discord.ui.Button):
@@ -266,32 +271,32 @@ class EndSessionButton(discord.ui.Button):
         super().__init__(label="🏁 End Session", style=discord.ButtonStyle.danger, row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        # Only save the current set if it has actual scores (avoid empty-set rp inflation)
-        cs = self._session.current_set
-        if cs and any(v > 0 for v in cs.scores.values()):
-            set_data = self._session.save_current_set()
-            if set_data:
-                await save_set(self._session.session_id, set_data)
-        else:
-            self._session.current_set = None  # discard empty set
+        await interaction.response.defer()
+        async with self._session._lock:
+            cs = self._session.current_set
+            if cs and any(v > 0 for v in cs.scores.values()):
+                set_data = self._session.save_current_set()
+                if set_data:
+                    await save_set(self._session.session_id, set_data)
+            else:
+                self._session.current_set = None
 
-        if self._session.channel_id in active_sessions:
-            del active_sessions[self._session.channel_id]
+            if self._session.channel_id in active_sessions:
+                del active_sessions[self._session.channel_id]
 
-        # If no sets were played at all, silently discard the session
-        if not self._session.completed_sets:
-            await delete_session(self._session.session_id)
-            embed = discord.Embed(
-                title="Session Discarded",
-                description="No scores were recorded. The session has been discarded.",
-                color=0x95A5A6,
-            )
-            await interaction.response.edit_message(embed=embed, view=None)
-            return
+            if not self._session.completed_sets:
+                await delete_session(self._session.session_id)
+                embed = discord.Embed(
+                    title="Session Discarded",
+                    description="No scores were recorded. The session has been discarded.",
+                    color=0x95A5A6,
+                )
+                await interaction.edit_original_response(embed=embed, view=None)
+                return
 
-        await end_session(self._session.session_id)
-        embed, debt_line = await _build_end_embed(self._session)
-        await interaction.response.edit_message(embed=embed, view=None)
+            await end_session(self._session.session_id)
+            embed, _ = await _build_end_embed(self._session)
+        await interaction.edit_original_response(embed=embed, view=None)
 
 
 class UndoButton(discord.ui.Button):
@@ -306,13 +311,14 @@ class UndoButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        cs = self._session.current_set
-        if cs:
-            cs.undo()
-        await interaction.response.edit_message(
-            embed=build_scoreboard_embed(self._session),
-            view=ScoreboardView(self._session),
-        )
+        await interaction.response.defer()
+        async with self._session._lock:
+            cs = self._session.current_set
+            if cs:
+                cs.undo()
+            embed = build_scoreboard_embed(self._session)
+            view = ScoreboardView(self._session)
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 class ScoreboardView(BaseView):
@@ -389,41 +395,47 @@ class FoulSelectView(BaseView):
         self.add_item(cancel)
 
     async def _on_player_select(self, interaction: discord.Interaction):
-        self.fouling_player = interaction.data["values"][0]
-        self._build()
-        await interaction.response.edit_message(view=self)
+        await interaction.response.defer()
+        async with self._session._lock:
+            self.fouling_player = interaction.data["values"][0]
+            self._build()
+        await interaction.edit_original_response(view=self)
 
     async def _on_ball_select(self, interaction: discord.Interaction):
-        self.ball = interaction.data["values"][0]
-        self._build()
-        await interaction.response.edit_message(view=self)
+        await interaction.response.defer()
+        async with self._session._lock:
+            self.ball = interaction.data["values"][0]
+            self._build()
+        await interaction.edit_original_response(view=self)
 
     async def _on_confirm(self, interaction: discord.Interaction):
-        cs = self._session.current_set
-        if cs:
-            cs.apply_foul(self.fouling_player, self.ball, self._session.players)
-
-        penalty = foul_penalty(self.ball)
-        per_player = distribute_penalty(self.ball, len(self._session.players))
-        n_remaining = len(self._session.players) - 1
-
-        embed = build_scoreboard_embed(self._session)
-        embed.add_field(
-            name="✅ Foul Applied",
-            value=(
-                f"**{self.fouling_player}** fouled on "
-                f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
-                f"+{per_player} pts to each of {n_remaining} other player(s)."
-            ),
-            inline=False,
-        )
-        await interaction.response.edit_message(embed=embed, view=ScoreboardView(self._session))
+        await interaction.response.defer()
+        async with self._session._lock:
+            cs = self._session.current_set
+            if cs:
+                cs.apply_foul(self.fouling_player, self.ball, self._session.players)
+            penalty = foul_penalty(self.ball)
+            per_player = distribute_penalty(self.ball, len(self._session.players))
+            n_remaining = len(self._session.players) - 1
+            embed = build_scoreboard_embed(self._session)
+            embed.add_field(
+                name="✅ Foul Applied",
+                value=(
+                    f"**{self.fouling_player}** fouled on "
+                    f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
+                    f"+{per_player} pts to each of {n_remaining} other player(s)."
+                ),
+                inline=False,
+            )
+            view = ScoreboardView(self._session)
+        await interaction.edit_original_response(embed=embed, view=view)
 
     async def _on_cancel(self, interaction: discord.Interaction):
-        await interaction.response.edit_message(
-            embed=build_scoreboard_embed(self._session),
-            view=ScoreboardView(self._session),
-        )
+        await interaction.response.defer()
+        async with self._session._lock:
+            embed = build_scoreboard_embed(self._session)
+            view = ScoreboardView(self._session)
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 # ---------------------------------------------------------------------------

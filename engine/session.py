@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import random
 from datetime import datetime
 from itertools import permutations
@@ -120,6 +121,7 @@ class SnookerSession:
     message_id: Optional[int] = None
     last_completed_set: Optional[dict] = None
     _perm_pool: list[list[int]] = field(default_factory=list)
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def init_players(self, players: list[str]):
         self.players = players
