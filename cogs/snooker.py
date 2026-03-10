@@ -37,19 +37,43 @@ class BaseView(discord.ui.View):
 # Embed builder
 # ---------------------------------------------------------------------------
 
-def _format_event(ev: dict) -> str:
-    """Format a single set event into a compact display line."""
-    if ev["type"] == "ball":
-        return f"{ev['seq']:>3}. {ev['player']:<12} {BALL_EMOJIS[ev['ball']]} {ev['ball'].capitalize()} (+{ev['value']})"
-    if ev["type"] == "foul":
-        recipients = ", ".join(ev["recipients"])
-        return (
-            f"{ev['seq']:>3}. 🚫 {ev['fouler']:<11} foul on {BALL_EMOJIS[ev['ball']]} "
-            f"{ev['ball'].capitalize()} (pen {ev['penalty']}, +{ev['per_player']} ea → {recipients})"
-        )
-    if ev["type"] == "end_turn":
-        return f"{ev['seq']:>3}. {'↩ End turn':<12} ({ev['player']})"
-    return f"{ev['seq']:>3}. {ev}"
+def _format_events_grouped(events: list[dict]) -> list[str]:
+    """
+    Format a list of set events into display lines, grouping consecutive
+    ball events for the same player into one line (turn summary).
+    Fouls and end_turn events are each their own line.
+    """
+    lines = []
+    i = 0
+    while i < len(events):
+        ev = events[i]
+        if ev["type"] == "ball":
+            # Collect all consecutive balls for this player
+            player = ev["player"]
+            balls = []
+            start_seq = ev["seq"]
+            while i < len(events) and events[i]["type"] == "ball" and events[i]["player"] == player:
+                balls.append(events[i]["ball"])
+                i += 1
+            end_seq = events[i - 1]["seq"]
+            total = sum(BALL_VALUES[b] for b in balls)
+            balls_str = " ".join(BALL_EMOJIS[b] for b in balls)
+            seq_label = f"{start_seq}" if start_seq == end_seq else f"{start_seq}-{end_seq}"
+            lines.append(f"{seq_label:>5}. {player:<12} {balls_str} (+{total})")
+        elif ev["type"] == "foul":
+            recipients = ", ".join(ev["recipients"])
+            lines.append(
+                f"{ev['seq']:>5}. 🚫 {ev['fouler']:<11} {BALL_EMOJIS[ev['ball']]} "
+                f"{ev['ball'].capitalize()} (pen {ev['penalty']}, +{ev['per_player']} ea → {recipients})"
+            )
+            i += 1
+        elif ev["type"] == "end_turn":
+            lines.append(f"{ev['seq']:>5}. {'↩':>2} {ev['player']}")
+            i += 1
+        else:
+            lines.append(f"{ev['seq']:>5}. {ev}")
+            i += 1
+    return lines
 
 
 def _fmt_duration(secs: int) -> str:
@@ -116,12 +140,11 @@ def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
             turn_val += f"\nBreak: {balls_str} ({total})"
         embed.add_field(name="Current Turn", value=turn_val, inline=True)
 
-        # Live event feed — last 10 events
+        # Live event feed — last 10 grouped lines
         if cs.events:
-            recent = cs.events[-10:]
-            feed_lines = [_format_event(e) for e in recent]
-            if len(cs.events) > 10:
-                feed_lines.insert(0, f"… ({len(cs.events) - 10} earlier events)")
+            feed_lines = _format_events_grouped(cs.events)
+            if len(feed_lines) > 10:
+                feed_lines = [f"… ({len(feed_lines) - 10} earlier)"] + feed_lines[-10:]
             embed.add_field(
                 name="📋 Set Log",
                 value="```\n" + "\n".join(feed_lines) + "\n```",
@@ -805,8 +828,7 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
         for s in sets:
             events = s.get("events") or []
             if events:
-                event_lines = [_format_event(e) for e in events]
-                # Discord field value limit is 1024 chars — truncate gracefully
+                event_lines = _format_events_grouped(events)
                 value = "\n".join(event_lines)
                 if len(value) > 990:
                     value = value[:990] + "\n…"
