@@ -214,3 +214,58 @@ async def mark_debt_paid_by_date(session_date: str) -> bool:
             session_date,
         )
         return result.split()[-1] != "0"  # "UPDATE N" — N > 0 means a row was updated
+
+
+async def transfer_debt(debt1_id: int, debt2_id: int) -> None:
+    """Transfer debt transitively.
+
+    Given debt1 (A → B) and debt2 (B → C), where debt1.creditor == debt2.debtor,
+    marks both original debts as paid and creates a new debt (A → C).
+    Raises ValueError if the chain is invalid (creditor of debt1 != debtor of debt2,
+    or the new debt would be self-referential).
+    """
+    async with _pool.acquire() as conn:
+        row1 = await conn.fetchrow(f"SELECT * FROM {SCHEMA}.debts WHERE id = $1", debt1_id)
+        row2 = await conn.fetchrow(f"SELECT * FROM {SCHEMA}.debts WHERE id = $1", debt2_id)
+
+        if row1 is None or row2 is None:
+            raise ValueError("One or both debts not found.")
+
+        debt1 = dict(row1)
+        debt2 = dict(row2)
+
+        if debt1["paid"] or debt2["paid"]:
+            raise ValueError("Cannot transfer already-paid debts.")
+        if debt1["creditor"] != debt2["debtor"]:
+            raise ValueError(
+                f"Invalid transfer chain: creditor of debt #{debt1_id} ({debt1['creditor']}) "
+                f"must match debtor of debt #{debt2_id} ({debt2['debtor']})."
+            )
+        if debt1["debtor"] == debt2["creditor"]:
+            raise ValueError(
+                "Invalid transfer: the resulting debt would be self-referential "
+                f"({debt1['debtor']} → {debt2['creditor']})."
+            )
+
+        now = datetime.now().isoformat()
+        async with conn.transaction():
+            await conn.execute(
+                f"UPDATE {SCHEMA}.debts SET paid = TRUE, paid_at = $1 WHERE id = $2",
+                now,
+                debt1_id,
+            )
+            await conn.execute(
+                f"UPDATE {SCHEMA}.debts SET paid = TRUE, paid_at = $1 WHERE id = $2",
+                now,
+                debt2_id,
+            )
+            await conn.execute(
+                f"""
+                INSERT INTO {SCHEMA}.debts (session_id, session_date, debtor, creditor, paid)
+                VALUES ($1, $2, $3, $4, FALSE)
+                """,
+                debt1["session_id"],
+                debt1["session_date"],
+                debt1["debtor"],
+                debt2["creditor"],
+            )

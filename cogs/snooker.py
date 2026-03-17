@@ -10,7 +10,7 @@ from discord.ext import commands
 import config
 from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, foul_penalty, distribute_penalty
 from engine.session import SnookerSession
-from db.database import save_session, save_set, end_session, delete_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid, mark_debt_paid_by_date
+from db.database import save_session, save_set, end_session, delete_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid, mark_debt_paid_by_date, transfer_debt
 
 log = logging.getLogger(__name__)
 
@@ -892,6 +892,26 @@ class HistoryView(BaseView):
 # Debt view
 # ---------------------------------------------------------------------------
 
+def find_transferable_chains(debts: list[dict]) -> list[tuple[dict, dict]]:
+    """Return pairs (debt1, debt2) of unpaid debts where debt1.creditor == debt2.debtor.
+
+    Each pair represents a transferable chain: debt1 is A→B and debt2 is B→C,
+    so B can transfer by replacing both with a new debt A→C.
+    Self-referential results (where A == C) are excluded.
+    """
+    unpaid = [d for d in debts if not d["paid"]]
+    chains = []
+    for d1 in unpaid:
+        for d2 in unpaid:
+            if (
+                d1["id"] != d2["id"]
+                and d1["creditor"] == d2["debtor"]
+                and d1["debtor"] != d2["creditor"]  # exclude circular debts
+            ):
+                chains.append((d1, d2))
+    return chains
+
+
 def build_debt_embed(debts: list[dict]) -> discord.Embed:
     embed = discord.Embed(title="🧋 Bubble Tea Debts", color=0xF39C12)
     if not debts:
@@ -925,6 +945,18 @@ def build_debt_embed(debts: list[dict]) -> discord.Embed:
             inline=False,
         )
 
+    chains = find_transferable_chains(debts)
+    if chains:
+        chain_lines = [
+            f"#{d1['id']}+#{d2['id']}  {d1['debtor']} → {d1['creditor']} → {d2['creditor']}"
+            for d1, d2 in chains
+        ]
+        embed.add_field(
+            name=f"🔄 Transferable Chains ({len(chains)})",
+            value="```\n" + "\n".join(chain_lines) + "\n```",
+            inline=False,
+        )
+
     return embed
 
 
@@ -942,18 +974,119 @@ class MarkPaidButton(discord.ui.Button):
         debts = await get_debts()
         embed = build_debt_embed(debts)
         unpaid = [d for d in debts if not d["paid"]]
+        chains = find_transferable_chains(debts)
         if unpaid:
-            await interaction.response.edit_message(embed=embed, view=DebtView(unpaid))
+            await interaction.response.edit_message(embed=embed, view=DebtView(unpaid, chains))
         else:
             await interaction.response.edit_message(embed=embed, view=None)
 
 
-class DebtView(BaseView):
-    def __init__(self, unpaid_debts: list[dict]):
+class TransferChainSelect(discord.ui.Select):
+    def __init__(self, chains: list[tuple[dict, dict]]):
+        options = [
+            discord.SelectOption(
+                label=f"#{d1['id']} {d1['debtor'][:10]}→{d1['creditor'][:10]} + #{d2['id']} {d2['debtor'][:10]}→{d2['creditor'][:10]}",
+                value=f"{d1['id']},{d2['id']}",
+                description=f"Result: {d1['debtor']} owes {d2['creditor']}",
+            )
+            for d1, d2 in chains
+        ]
+        super().__init__(
+            placeholder="Select a debt chain to transfer…",
+            options=options,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        self.view.selected_chain = self.values[0]
+        self.view.confirm_button.disabled = False
+        await interaction.response.edit_message(view=self.view)
+
+
+class ConfirmTransferButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            label="✅ Confirm Transfer",
+            style=discord.ButtonStyle.success,
+            disabled=True,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        debt1_id, debt2_id = map(int, self.view.selected_chain.split(","))
+        try:
+            await transfer_debt(debt1_id, debt2_id)
+        except ValueError as exc:
+            await interaction.response.send_message(
+                f"⚠️ Transfer failed: {exc}", ephemeral=True
+            )
+            return
+        debts = await get_debts()
+        embed = build_debt_embed(debts)
+        unpaid = [d for d in debts if not d["paid"]]
+        chains = find_transferable_chains(debts)
+        if unpaid:
+            await interaction.response.edit_message(embed=embed, view=DebtView(unpaid, chains))
+        else:
+            await interaction.response.edit_message(embed=embed, view=None)
+
+
+class CancelTransferButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            label="✖ Cancel",
+            style=discord.ButtonStyle.secondary,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        debts = await get_debts()
+        embed = build_debt_embed(debts)
+        unpaid = [d for d in debts if not d["paid"]]
+        chains = find_transferable_chains(debts)
+        if unpaid:
+            await interaction.response.edit_message(embed=embed, view=DebtView(unpaid, chains))
+        else:
+            await interaction.response.edit_message(embed=embed, view=None)
+
+
+class TransferDebtView(BaseView):
+    def __init__(self, chains: list[tuple[dict, dict]]):
         super().__init__(timeout=120)
-        # Max 5 buttons per view (rows 0–4), one per unpaid debt
-        for i, debt in enumerate(unpaid_debts[:5]):
+        self.selected_chain: str | None = None
+        self.confirm_button = ConfirmTransferButton()
+        self.add_item(TransferChainSelect(chains))
+        self.add_item(self.confirm_button)
+        self.add_item(CancelTransferButton())
+
+
+class TransferDebtButton(discord.ui.Button):
+    def __init__(self, chains: list[tuple[dict, dict]], row: int):
+        self._chains = chains
+        super().__init__(
+            label="🔄 Transfer Debt",
+            style=discord.ButtonStyle.primary,
+            row=row,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(
+            content="Select a debt chain to transfer transitively:",
+            embed=None,
+            view=TransferDebtView(self._chains),
+        )
+
+
+class DebtView(BaseView):
+    def __init__(self, unpaid_debts: list[dict], chains: list[tuple[dict, dict]] | None = None):
+        super().__init__(timeout=120)
+        chains = chains or []
+        # Reserve row 4 for the transfer button when chains exist; otherwise show up to 5 debts.
+        max_paid_buttons = 4 if chains else 5
+        for i, debt in enumerate(unpaid_debts[:max_paid_buttons]):
             self.add_item(MarkPaidButton(debt, row=i))
+        if chains:
+            self.add_item(TransferDebtButton(chains, row=4))
 
 
 # ---------------------------------------------------------------------------
@@ -1007,8 +1140,9 @@ class SnookerCog(commands.Cog):
         debts = await get_debts()
         embed = build_debt_embed(debts)
         unpaid = [d for d in debts if not d["paid"]]
+        chains = find_transferable_chains(debts)
         if unpaid:
-            await interaction.followup.send(embed=embed, view=DebtView(unpaid))
+            await interaction.followup.send(embed=embed, view=DebtView(unpaid, chains))
         else:
             await interaction.followup.send(embed=embed)
 
