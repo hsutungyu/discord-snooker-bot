@@ -883,7 +883,7 @@ def _safe_add_field(embed: discord.Embed, name: str, value: str) -> bool:
     embed.add_field(name=name, value=value, inline=False)
     return True
 
-def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
+def build_history_embed(sessions: list[dict], page: int, set_page: int = 0) -> discord.Embed:
     if not sessions:
         return discord.Embed(
             title="📜 Session History",
@@ -896,12 +896,17 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
     players = session["players"]
     totals = session["ranking_totals"]
     sets = session["sets"]
+    total_sets = len(sets)
+
+    # Clamp set_page to valid range
+    set_page = max(0, min(set_page, total_sets - 1)) if total_sets else 0
 
     embed = discord.Embed(
         title=f"📜 Session — {session['date']}",
         color=0x9B59B6,
     )
-    embed.set_footer(text=f"Session {page + 1} of {total_pages}  |  {len(sets)} set(s) played")
+    set_indicator = f"  |  Set {set_page + 1} of {total_sets}" if total_sets else ""
+    embed.set_footer(text=f"Session {page + 1} of {total_pages}  |  {total_sets} set(s) played{set_indicator}")
 
     # Final standings
     score_totals = session.get("score_totals", {})
@@ -921,7 +926,7 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
         inline=False,
     )
 
-    # Per-set breakdown: scores in playing order + breaks + full event log
+    # All-sets score summary (scores + breaks per set, all sets)
     if sets:
         set_lines = []
         for s in sets:
@@ -930,7 +935,8 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
             parts = "  ".join(f"{p} {scores.get(p, 0)}" for p in order)
             dur = s.get("duration_secs")
             dur_str = f"  ⏱{_fmt_duration(dur)}" if dur is not None else ""
-            set_lines.append(f"Set {s['set_number']:>2}: {parts}{dur_str}")
+            marker = " ◀" if s["set_number"] == set_page + 1 else ""
+            set_lines.append(f"Set {s['set_number']:>2}: {parts}{dur_str}{marker}")
             breaks = s.get("breaks", {})
             if breaks:
                 for p, player_breaks in breaks.items():
@@ -939,7 +945,7 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
                         for brk in player_breaks
                     )
                     set_lines.append(f"         {p}: {totals_str}")
-        # Split set_lines into ≤1016-char chunks (8 chars reserved for ``` wrapper)
+        # Split into ≤1016-char chunks (8 chars reserved for ``` wrapper)
         MAX_CONTENT = 1016
         chunks: list[str] = []
         current = ""
@@ -962,8 +968,9 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
             if not added:
                 break
 
-        # Full event log per set — only shown when at least one point was scored
-        for s in sets:
+        # Event log for the currently selected set only
+        if total_sets:
+            s = sets[set_page]
             events = s.get("events") or []
             scores = s.get("scores") or {}
             if events and sum(scores.values()) > 0:
@@ -971,22 +978,19 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
                 value = "\n".join(event_lines)
                 if len(value) > 990:
                     value = value[:990] + "\n…"
-                added = _safe_add_field(
+                _safe_add_field(
                     embed,
                     f"📋 Set {s['set_number']} Log",
                     "```\n" + value + "\n```",
                 )
-                if not added:
-                    # Embed is full — note that logs were omitted
-                    _safe_add_field(embed, "📋 Event Logs", "*Omitted — embed size limit reached.*")
-                    break
 
     return embed
 
 
 class HistoryPrevButton(discord.ui.Button):
-    def __init__(self, page: int, total: int):
+    def __init__(self, page: int, total: int, set_page: int):
         self._page = page
+        self._set_page = set_page
         super().__init__(
             label="◀ Newer",
             style=discord.ButtonStyle.secondary,
@@ -999,14 +1003,15 @@ class HistoryPrevButton(discord.ui.Button):
         new_page = self._page - 1
         sessions = await get_completed_sessions()
         await interaction.edit_original_response(
-            embed=build_history_embed(sessions, new_page),
-            view=HistoryView(new_page, len(sessions)),
+            embed=build_history_embed(sessions, new_page, 0),
+            view=HistoryView(new_page, len(sessions), 0, len(sessions[new_page]["sets"])),
         )
 
 
 class HistoryNextButton(discord.ui.Button):
-    def __init__(self, page: int, total: int):
+    def __init__(self, page: int, total: int, set_page: int):
         self._page = page
+        self._set_page = set_page
         super().__init__(
             label="Older ▶",
             style=discord.ButtonStyle.secondary,
@@ -1019,16 +1024,65 @@ class HistoryNextButton(discord.ui.Button):
         new_page = self._page + 1
         sessions = await get_completed_sessions()
         await interaction.edit_original_response(
-            embed=build_history_embed(sessions, new_page),
-            view=HistoryView(new_page, len(sessions)),
+            embed=build_history_embed(sessions, new_page, 0),
+            view=HistoryView(new_page, len(sessions), 0, len(sessions[new_page]["sets"])),
+        )
+
+
+class HistorySetPrevButton(discord.ui.Button):
+    def __init__(self, page: int, total_sessions: int, set_page: int, total_sets: int):
+        self._page = page
+        self._total_sessions = total_sessions
+        self._set_page = set_page
+        super().__init__(
+            label="◀ Prev Set",
+            style=discord.ButtonStyle.primary,
+            disabled=set_page == 0,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        new_set_page = self._set_page - 1
+        sessions = await get_completed_sessions()
+        await interaction.edit_original_response(
+            embed=build_history_embed(sessions, self._page, new_set_page),
+            view=HistoryView(self._page, self._total_sessions, new_set_page, len(sessions[self._page]["sets"])),
+        )
+
+
+class HistorySetNextButton(discord.ui.Button):
+    def __init__(self, page: int, total_sessions: int, set_page: int, total_sets: int):
+        self._page = page
+        self._total_sessions = total_sessions
+        self._set_page = set_page
+        self._total_sets = total_sets
+        super().__init__(
+            label="Next Set ▶",
+            style=discord.ButtonStyle.primary,
+            disabled=set_page >= total_sets - 1,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        new_set_page = self._set_page + 1
+        sessions = await get_completed_sessions()
+        await interaction.edit_original_response(
+            embed=build_history_embed(sessions, self._page, new_set_page),
+            view=HistoryView(self._page, self._total_sessions, new_set_page, len(sessions[self._page]["sets"])),
         )
 
 
 class HistoryView(BaseView):
-    def __init__(self, page: int = 0, total: int = 0):
+    def __init__(self, page: int = 0, total_sessions: int = 0, set_page: int = 0, total_sets: int = 0):
         super().__init__(timeout=None)
-        self.add_item(HistoryPrevButton(page, total))
-        self.add_item(HistoryNextButton(page, total))
+        self.add_item(HistoryPrevButton(page, total_sessions, set_page))
+        self.add_item(HistoryNextButton(page, total_sessions, set_page))
+        if total_sets > 1:
+            self.add_item(HistorySetPrevButton(page, total_sessions, set_page, total_sets))
+            self.add_item(HistorySetNextButton(page, total_sessions, set_page, total_sets))
+
 
 
 # ---------------------------------------------------------------------------
@@ -1256,9 +1310,10 @@ class SnookerCog(commands.Cog):
     async def history(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         sessions = await get_completed_sessions()
-        embed = build_history_embed(sessions, 0)
+        embed = build_history_embed(sessions, 0, 0)
         if sessions:
-            await interaction.followup.send(embed=embed, view=HistoryView(0, len(sessions)))
+            total_sets = len(sessions[0]["sets"])
+            await interaction.followup.send(embed=embed, view=HistoryView(0, len(sessions), 0, total_sets))
         else:
             await interaction.followup.send(embed=embed)
 
