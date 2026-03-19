@@ -95,10 +95,11 @@ class SetState:
                 fouler_idx = self.player_order.index(fouling_player)
                 prev_player = self.player_order[(fouler_idx - 1) % len(self.player_order)]
                 recipients = [prev_player]
+                per_player = penalty
             else:
                 # Fallback: distribute among all other players if fouler not in order
                 recipients = [p for p in all_players if p != fouling_player]
-            per_player = penalty
+                per_player = distribute_penalty(ball, len(all_players))
         else:
             per_player = distribute_penalty(ball, len(all_players))
             recipients = [p for p in all_players if p != fouling_player]
