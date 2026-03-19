@@ -824,10 +824,11 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
             inline=False,
         )
 
-        # Full event log per set
+        # Full event log per set — only shown when at least one point was scored
         for s in sets:
             events = s.get("events") or []
-            if events:
+            scores = s.get("scores") or {}
+            if events and sum(scores.values()) > 0:
                 event_lines = _format_events_grouped(events)
                 value = "\n".join(event_lines)
                 if len(value) > 990:
