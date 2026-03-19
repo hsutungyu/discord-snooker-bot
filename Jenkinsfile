@@ -10,7 +10,7 @@ pipeline {
         DEPLOY_FILE     = "deploy.yaml"
         // Credential IDs configured in Jenkins (see setup notes below)
         REGISTRY_CRED   = "gitea-jenkins-token"    // Username+Password credential
-        KUBECONFIG_CRED = "k8s-kubeconfig"          // Secret File credential
+
     }
 
     stages {
@@ -74,16 +74,11 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 container('helm') {
-                    withCredentials([file(
-                        credentialsId: 'k8s-kubeconfig',
-                        variable: 'KUBECONFIG'
-                    )]) {
-                        sh "kubectl apply -f ${env.DEPLOY_FILE}"
-                        sh """
-                            kubectl rollout status deployment/discord-snooker \
-                                -n automation --timeout=120s
-                        """
-                    }
+                    sh "kubectl apply -f ${env.DEPLOY_FILE}"
+                    sh """
+                        kubectl rollout status deployment/discord-snooker \
+                            -n automation --timeout=120s
+                    """
                 }
             }
         }
