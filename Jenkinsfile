@@ -9,7 +9,7 @@ pipeline {
         IMAGE_PATH      = "automation/discord-snooker"
         DEPLOY_FILE     = "deploy.yaml"
         // Credential IDs configured in Jenkins (see setup notes below)
-        REGISTRY_CRED   = "gitea-registry-creds"    // Username+Password credential
+        REGISTRY_CRED   = "gitea-jenkins-token"    // Username+Password credential
         KUBECONFIG_CRED = "k8s-kubeconfig"          // Secret File credential
     }
 
@@ -37,7 +37,7 @@ pipeline {
             steps {
                 container('kaniko') {
                     withCredentials([usernamePassword(
-                        credentialsId: 'gitea-registry-creds',
+                        credentialsId: 'gitea-jenkins-token',
                         usernameVariable: 'REG_USER',
                         passwordVariable: 'REG_PASS'
                     )]) {
