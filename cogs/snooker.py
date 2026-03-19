@@ -941,7 +941,7 @@ def build_history_embed(sessions: list[dict], page: int, set_page: int = 0) -> d
             if breaks:
                 for p, player_breaks in breaks.items():
                     totals_str = " → ".join(
-                        f"({sum(BALL_VALUES[b] for b in brk)})"
+                        f"{''.join(BALL_EMOJIS[b] for b in brk)} ({sum(BALL_VALUES[b] for b in brk)})"
                         for brk in player_breaks
                     )
                     set_lines.append(f"         {p}: {totals_str}")
