@@ -62,9 +62,15 @@ def _format_events_grouped(events: list[dict]) -> list[str]:
             lines.append(f"{seq_label:>5}. {player:<12} {balls_str} (+{total})")
         elif ev["type"] == "foul":
             recipients = ", ".join(ev["recipients"])
+            intent_tag = " [intentional]" if ev.get("intentional") else ""
+            per_player_str = (
+                f"+{ev['per_player']} ea → {recipients}"
+                if not ev.get("intentional") and len(ev["recipients"]) > 1
+                else f"+{ev['per_player']} → {recipients}"
+            )
             lines.append(
                 f"{ev['seq']:>5}. 🚫 {ev['fouler']:<11} {BALL_EMOJIS[ev['ball']]} "
-                f"{ev['ball'].capitalize()} (pen {ev['penalty']}, +{ev['per_player']} ea → {recipients})"
+                f"{ev['ball'].capitalize()} (pen {ev['penalty']}, {per_player_str}{intent_tag})"
             )
             i += 1
         elif ev["type"] == "end_turn":
@@ -410,13 +416,14 @@ class ConfirmEndSessionView(BaseView):
 # ---------------------------------------------------------------------------
 
 class FoulSelectView(BaseView):
-    """One message: pick fouling player + ball, then confirm. No navigation needed."""
+    """One message: pick fouling player + ball + foul type, then confirm. No navigation needed."""
 
-    def __init__(self, session: SnookerSession, fouling_player: str | None = None, ball: str | None = None):
+    def __init__(self, session: SnookerSession, fouling_player: str | None = None, ball: str | None = None, intentional: bool | None = None):
         super().__init__(timeout=None)
         self._session = session
         self.fouling_player = fouling_player
         self.ball = ball
+        self.intentional = intentional
         self._build()
 
     def _build(self):
@@ -449,11 +456,36 @@ class FoulSelectView(BaseView):
         ball_select.callback = self._on_ball_select
         self.add_item(ball_select)
 
+        intentional_label = (
+            None if self.intentional is None
+            else ("Intentional" if self.intentional else "Unintentional")
+        )
+        foul_type_select = discord.ui.Select(
+            placeholder="Foul type?" if intentional_label is None else f"Type: {intentional_label}",
+            options=[
+                discord.SelectOption(
+                    label="Unintentional",
+                    value="unintentional",
+                    description="Penalty shared equally among all other players",
+                    default=(self.intentional is False),
+                ),
+                discord.SelectOption(
+                    label="Intentional",
+                    value="intentional",
+                    description="Full penalty awarded to the player before the fouler",
+                    default=(self.intentional is True),
+                ),
+            ],
+            row=2,
+        )
+        foul_type_select.callback = self._on_foul_type_select
+        self.add_item(foul_type_select)
+
         confirm = discord.ui.Button(
             label="✅ Apply Foul",
             style=discord.ButtonStyle.danger,
-            disabled=not (self.fouling_player and self.ball),
-            row=2,
+            disabled=not (self.fouling_player and self.ball and self.intentional is not None),
+            row=3,
         )
         confirm.callback = self._on_confirm
         self.add_item(confirm)
@@ -461,7 +493,7 @@ class FoulSelectView(BaseView):
         cancel = discord.ui.Button(
             label="Cancel",
             style=discord.ButtonStyle.secondary,
-            row=2,
+            row=3,
         )
         cancel.callback = self._on_cancel
         self.add_item(cancel)
@@ -480,25 +512,47 @@ class FoulSelectView(BaseView):
             self._build()
         await interaction.edit_original_response(view=self)
 
+    async def _on_foul_type_select(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        async with self._session._lock:
+            self.intentional = interaction.data["values"][0] == "intentional"
+            self._build()
+        await interaction.edit_original_response(view=self)
+
     async def _on_confirm(self, interaction: discord.Interaction):
         await interaction.response.defer()
         async with self._session._lock:
             cs = self._session.current_set
             if cs:
-                cs.apply_foul(self.fouling_player, self.ball, self._session.players)
+                cs.apply_foul(self.fouling_player, self.ball, self._session.players, intentional=self.intentional)
             penalty = foul_penalty(self.ball)
-            per_player = distribute_penalty(self.ball, len(self._session.players))
-            n_remaining = len(self._session.players) - 1
             embed = build_scoreboard_embed(self._session)
-            embed.add_field(
-                name="✅ Foul Applied",
-                value=(
-                    f"**{self.fouling_player}** fouled on "
-                    f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
-                    f"+{per_player} pts to each of {n_remaining} other player(s)."
-                ),
-                inline=False,
-            )
+            # Read computed recipients and per_player from the event just logged
+            last_event = cs.events[-1] if cs and cs.events else {}
+            per_player = last_event.get("per_player", penalty)
+            recipients = last_event.get("recipients", [])
+            if self.intentional:
+                prev_player = recipients[0] if recipients else ""
+                embed.add_field(
+                    name="✅ Intentional Foul Applied",
+                    value=(
+                        f"**{self.fouling_player}** intentionally fouled on "
+                        f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
+                        f"+{per_player} pts to **{prev_player}**."
+                    ),
+                    inline=False,
+                )
+            else:
+                n_remaining = len(recipients)
+                embed.add_field(
+                    name="✅ Foul Applied",
+                    value=(
+                        f"**{self.fouling_player}** fouled on "
+                        f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
+                        f"+{per_player} pts to each of {n_remaining} other player(s)."
+                    ),
+                    inline=False,
+                )
             view = ScoreboardView(self._session)
         await interaction.edit_original_response(embed=embed, view=view)
 
