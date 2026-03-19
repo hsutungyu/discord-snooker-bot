@@ -42,7 +42,8 @@ def _format_events_grouped(events: list[dict]) -> list[str]:
     """
     Format a list of set events into display lines, grouping consecutive
     ball events for the same player into one line (turn summary).
-    Fouls and end_turn events are each their own line.
+    Fouls are each their own line. end_turn events are shown only when
+    the player potted at least one ball that turn (skipped turns omitted).
     """
     lines = []
     i = 0
@@ -75,7 +76,10 @@ def _format_events_grouped(events: list[dict]) -> list[str]:
             )
             i += 1
         elif ev["type"] == "end_turn":
-            lines.append(f"{ev['seq']:>5}. {'↩':>2} {ev['player']}")
+            # Only show if the player scored at least one ball this turn
+            prev = events[i - 1] if i > 0 else None
+            if prev and prev["type"] == "ball" and prev["player"] == ev["player"]:
+                lines.append(f"{ev['seq']:>5}. {'↩':>2} {ev['player']}")
             i += 1
         else:
             lines.append(f"{ev['seq']:>5}. {ev}")
