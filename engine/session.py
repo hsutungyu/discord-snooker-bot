@@ -82,14 +82,26 @@ class SetState:
         from engine.score import BALL_VALUES
         return sum(BALL_VALUES[b] for b in self.current_break)
 
-    def apply_foul(self, fouling_player: str, ball: str, all_players: list[str]):
+    def apply_foul(self, fouling_player: str, ball: str, all_players: list[str], intentional: bool = False):
         self._save_snapshot()
         # A foul ends the fouling player's break
         if self.current_break:
             self.breaks.setdefault(fouling_player, []).append(list(self.current_break))
             self.current_break = []
-        per_player = distribute_penalty(ball, len(all_players))
-        recipients = [p for p in all_players if p != fouling_player]
+        penalty = foul_penalty(ball)
+        if intentional:
+            # Full penalty awarded to the player immediately before the fouler in the turn order
+            if fouling_player in self.player_order:
+                fouler_idx = self.player_order.index(fouling_player)
+                prev_player = self.player_order[(fouler_idx - 1) % len(self.player_order)]
+                recipients = [prev_player]
+            else:
+                # Fallback: distribute among all other players if fouler not in order
+                recipients = [p for p in all_players if p != fouling_player]
+            per_player = penalty
+        else:
+            per_player = distribute_penalty(ball, len(all_players))
+            recipients = [p for p in all_players if p != fouling_player]
         for p in recipients:
             self.scores[p] = self.scores.get(p, 0) + per_player
         self.events.append({
@@ -97,9 +109,10 @@ class SetState:
             "type": "foul",
             "fouler": fouling_player,
             "ball": ball,
-            "penalty": foul_penalty(ball),
+            "penalty": penalty,
             "per_player": per_player,
             "recipients": recipients,
+            "intentional": intentional,
         })
 
     def flush_break(self):
