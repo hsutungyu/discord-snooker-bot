@@ -1,12 +1,15 @@
 pipeline {
-    agent any
+    // Runs on the pod template labelled 'python-ci', which provides:
+    //   - kaniko   : gcr.io/kaniko-project/executor (build & push, no Docker daemon)
+    //   - helm     : alpine/helm (kubectl + helm available for k8s operations)
+    agent { label 'python-ci' }
 
     environment {
-        REGISTRY     = "git.19371928.xyz"
-        IMAGE_PATH   = "automation/discord-snooker"
-        DEPLOY_FILE  = "deploy.yaml"
+        REGISTRY        = "git.19371928.xyz"
+        IMAGE_PATH      = "automation/discord-snooker"
+        DEPLOY_FILE     = "deploy.yaml"
         // Credential IDs configured in Jenkins (see setup notes below)
-        REGISTRY_CRED = "gitea-registry-creds"      // Username+Password credential
+        REGISTRY_CRED   = "gitea-registry-creds"    // Username+Password credential
         KUBECONFIG_CRED = "k8s-kubeconfig"          // Secret File credential
     }
 
@@ -30,24 +33,30 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Build & Push') {
             steps {
-                sh "docker build -t ${env.FULL_IMAGE} ."
-            }
-        }
-
-        stage('Push') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: env.REGISTRY_CRED,
-                    usernameVariable: 'REG_USER',
-                    passwordVariable: 'REG_PASS'
-                )]) {
-                    sh """
-                        echo "\${REG_PASS}" | docker login "${env.REGISTRY}" \
-                            -u "\${REG_USER}" --password-stdin
-                        docker push "${env.FULL_IMAGE}"
-                    """
+                container('kaniko') {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'gitea-registry-creds',
+                        usernameVariable: 'REG_USER',
+                        passwordVariable: 'REG_PASS'
+                    )]) {
+                        // Write registry auth where kaniko expects it
+                        sh '''
+                            AUTH=$(printf "%s:%s" "$REG_USER" "$REG_PASS" | base64 -w 0)
+                            mkdir -p /kaniko/.docker
+                            printf '{"auths":{"%s":{"auth":"%s"}}}' \
+                                "$REGISTRY" "$AUTH" > /kaniko/.docker/config.json
+                        '''
+                        sh """
+                            /kaniko/executor \
+                                --context=dir://${env.WORKSPACE} \
+                                --dockerfile=${env.WORKSPACE}/Dockerfile \
+                                --destination=${env.FULL_IMAGE} \
+                                --cache=true \
+                                --cache-repo=${env.REGISTRY}/${env.IMAGE_PATH}/cache
+                        """
+                    }
                 }
             }
         }
@@ -64,26 +73,23 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                withCredentials([file(
-                    credentialsId: env.KUBECONFIG_CRED,
-                    variable: 'KUBECONFIG'
-                )]) {
-                    sh "kubectl apply -f ${env.DEPLOY_FILE}"
-                    sh """
-                        kubectl rollout status deployment/discord-snooker \
-                            -n automation --timeout=120s
-                    """
+                container('helm') {
+                    withCredentials([file(
+                        credentialsId: 'k8s-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )]) {
+                        sh "kubectl apply -f ${env.DEPLOY_FILE}"
+                        sh """
+                            kubectl rollout status deployment/discord-snooker \
+                                -n automation --timeout=120s
+                        """
+                    }
                 }
             }
         }
     }
 
     post {
-        always {
-            // Remove local image to keep the agent disk clean
-            sh "docker rmi ${env.FULL_IMAGE} || true"
-            sh "docker logout ${env.REGISTRY} || true"
-        }
         success {
             echo "Deployed ${env.FULL_IMAGE} successfully."
         }
