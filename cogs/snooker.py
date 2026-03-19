@@ -918,11 +918,26 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
                         total = sum(BALL_VALUES[b] for b in brk)
                         balls_str = " ".join(BALL_EMOJIS[b] for b in brk)
                         set_lines.append(f"         {p}: {balls_str} ({total})")
-        embed.add_field(
-            name="Set Results",
-            value="```\n" + "\n".join(set_lines) + "\n```",
-            inline=False,
-        )
+        # Split set_lines into ≤1016-char chunks (8 chars reserved for ``` wrapper)
+        MAX_CONTENT = 1016
+        chunks: list[str] = []
+        current = ""
+        for line in set_lines:
+            candidate = (current + "\n" + line) if current else line
+            if len(candidate) > MAX_CONTENT:
+                if current:
+                    chunks.append(current)
+                current = line
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        for idx, chunk in enumerate(chunks):
+            embed.add_field(
+                name="Set Results" if idx == 0 else "Set Results (cont.)",
+                value="```\n" + chunk + "\n```",
+                inline=False,
+            )
 
         # Full event log per set — only shown when at least one point was scored
         for s in sets:
