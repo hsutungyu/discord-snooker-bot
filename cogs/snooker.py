@@ -934,10 +934,11 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
             breaks = s.get("breaks", {})
             if breaks:
                 for p, player_breaks in breaks.items():
-                    for brk in player_breaks:
-                        total = sum(BALL_VALUES[b] for b in brk)
-                        balls_str = " ".join(BALL_EMOJIS[b] for b in brk)
-                        set_lines.append(f"         {p}: {balls_str} ({total})")
+                    totals_str = " → ".join(
+                        f"({sum(BALL_VALUES[b] for b in brk)})"
+                        for brk in player_breaks
+                    )
+                    set_lines.append(f"         {p}: {totals_str}")
         # Split set_lines into ≤1016-char chunks (8 chars reserved for ``` wrapper)
         MAX_CONTENT = 1016
         chunks: list[str] = []
