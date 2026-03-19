@@ -863,6 +863,26 @@ async def _build_end_embed(session: SnookerSession):
 # History view
 # ---------------------------------------------------------------------------
 
+_EMBED_LIMIT = 5900  # conservative safety margin below Discord's 6000-char cap
+
+
+def _embed_len(embed: discord.Embed) -> int:
+    total = len(embed.title or "") + len(embed.description or "")
+    if embed.footer and embed.footer.text:
+        total += len(embed.footer.text)
+    for f in embed.fields:
+        total += len(f.name) + len(f.value)
+    return total
+
+
+def _safe_add_field(embed: discord.Embed, name: str, value: str) -> bool:
+    """Add a field only if it keeps the embed within the 6000-char limit.
+    Returns True if added, False if skipped."""
+    if _embed_len(embed) + len(name) + len(value) > _EMBED_LIMIT:
+        return False
+    embed.add_field(name=name, value=value, inline=False)
+    return True
+
 def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
     if not sessions:
         return discord.Embed(
@@ -933,11 +953,13 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
         if current:
             chunks.append(current)
         for idx, chunk in enumerate(chunks):
-            embed.add_field(
-                name="Set Results" if idx == 0 else "Set Results (cont.)",
-                value="```\n" + chunk + "\n```",
-                inline=False,
+            added = _safe_add_field(
+                embed,
+                "Set Results" if idx == 0 else "Set Results (cont.)",
+                "```\n" + chunk + "\n```",
             )
+            if not added:
+                break
 
         # Full event log per set — only shown when at least one point was scored
         for s in sets:
@@ -948,11 +970,15 @@ def build_history_embed(sessions: list[dict], page: int) -> discord.Embed:
                 value = "\n".join(event_lines)
                 if len(value) > 990:
                     value = value[:990] + "\n…"
-                embed.add_field(
-                    name=f"📋 Set {s['set_number']} Log",
-                    value="```\n" + value + "\n```",
-                    inline=False,
+                added = _safe_add_field(
+                    embed,
+                    f"📋 Set {s['set_number']} Log",
+                    "```\n" + value + "\n```",
                 )
+                if not added:
+                    # Embed is full — note that logs were omitted
+                    _safe_add_field(embed, "📋 Event Logs", "*Omitted — embed size limit reached.*")
+                    break
 
     return embed
 
