@@ -324,6 +324,51 @@ class UndoButton(discord.ui.Button):
         await interaction.edit_original_response(embed=embed, view=view)
 
 
+class BallSummaryButton(discord.ui.Button):
+    def __init__(self, session: SnookerSession):
+        self._session = session
+        super().__init__(label="📊 Summary", style=discord.ButtonStyle.secondary, row=2)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        async with self._session._lock:
+            cs = self._session.current_set
+            if not cs:
+                await interaction.followup.send("No set is currently in progress.", ephemeral=True)
+                return
+
+            # Count balls per player from the event log
+            ball_counts: dict[str, dict[str, int]] = {
+                p: {b: 0 for b in BALLS} for p in self._session.players
+            }
+            for ev in cs.events:
+                if ev["type"] == "ball":
+                    ball_counts[ev["player"]][ev["ball"]] += 1
+
+            # Build a line per player showing non-zero ball counts
+            lines = []
+            for p in cs.player_order:
+                counts = ball_counts[p]
+                parts = [
+                    f"{BALL_EMOJIS[b]}×{counts[b]}"
+                    for b in BALLS
+                    if counts[b] > 0
+                ]
+                balls_str = "  ".join(parts) if parts else "—"
+                lines.append(f"{p:<12} {balls_str}  (+{cs.scores.get(p, 0)} pts)")
+
+            embed = discord.Embed(
+                title=f"📊 Set {cs.set_number} — Ball Summary",
+                color=0x2ECC71,
+            )
+            embed.add_field(
+                name="Balls potted this set",
+                value="\n".join(lines),
+                inline=False,
+            )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 class ScoreboardView(BaseView):
     def __init__(self, session: SnookerSession):
         super().__init__(timeout=None)
@@ -334,6 +379,7 @@ class ScoreboardView(BaseView):
         self.add_item(NewSetButton(session))
         self.add_item(EndSessionButton(session))
         self.add_item(UndoButton(session))
+        self.add_item(BallSummaryButton(session))
 
 
 # ---------------------------------------------------------------------------
