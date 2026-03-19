@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import traceback
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -1289,5 +1290,42 @@ class SnookerCog(commands.Cog):
             await interaction.followup.send(embed=embed)
 
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(SnookerCog(bot))
+    @app_commands.command(name="sync", description="Trigger a GitHub → Gitea mirror sync")
+    async def sync(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+
+        if not config.GITEA_TOKEN:
+            await interaction.followup.send(
+                "⚠️ `GITEA_TOKEN` is not configured. Set it in the bot's environment.",
+                ephemeral=True,
+            )
+            return
+
+        url = f"{config.GITEA_URL.rstrip('/')}/api/v1/repos/{config.GITEA_MIRROR_REPO}/mirror-sync"
+        headers = {
+            "Authorization": f"token {config.GITEA_TOKEN}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers) as resp:
+                    if resp.status == 200:
+                        await interaction.followup.send(
+                            f"✅ Mirror sync triggered for `{config.GITEA_MIRROR_REPO}`."
+                        )
+                    else:
+                        body = await resp.text()
+                        await interaction.followup.send(
+                            f"⚠️ Gitea returned HTTP {resp.status}:\n```{body[:300]}```",
+                            ephemeral=True,
+                        )
+        except Exception as e:
+            log.error("Failed to trigger Gitea mirror sync: %s", e)
+            await interaction.followup.send(
+                f"❌ Failed to reach Gitea: `{e}`",
+                ephemeral=True,
+            )
+
+
+

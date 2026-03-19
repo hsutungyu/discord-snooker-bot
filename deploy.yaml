@@ -35,6 +35,11 @@ spec:
                 secretKeyRef:
                   name: discord-snooker-secret
                   key: GUILD_ID
+            - name: GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: discord-snooker-secret
+                  key: GITEA_TOKEN
           resources:
             requests:
               cpu: 50m

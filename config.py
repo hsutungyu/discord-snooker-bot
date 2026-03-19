@@ -7,6 +7,13 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 GUILD_ID = int(os.getenv("GUILD_ID")) if os.getenv("GUILD_ID") else None
 
+# Gitea mirror sync — used by /sync command
+GITEA_URL = os.getenv("GITEA_URL", "https://git.19371928.xyz")
+GITEA_TOKEN = os.getenv("GITEA_TOKEN")                       # API token with repo write scope
+GITEA_MIRROR_REPO = os.getenv(
+    "GITEA_MIRROR_REPO", "automation/discord-snooker-bot-github-mirror"
+)
+
 # Fixed player names — edit these to match your group
 PLAYERS = ["Anson", "Desmond", "Justin", "Tung"]
 
