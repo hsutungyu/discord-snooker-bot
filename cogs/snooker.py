@@ -269,12 +269,12 @@ class FoulButton(discord.ui.Button):
         super().__init__(label="🚫 Foul", style=discord.ButtonStyle.danger, row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
         async with self._session._lock:
+            scoreboard_message = interaction.message
             embed = build_scoreboard_embed(self._session)
             embed.add_field(name="🚫 Foul", value="Select the fouling player and ball, then confirm.", inline=False)
-            view = FoulSelectView(self._session)
-        await interaction.edit_original_response(embed=embed, view=view)
+            view = FoulSelectView(self._session, scoreboard_message=scoreboard_message)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 class NewSetButton(discord.ui.Button):
@@ -464,12 +464,13 @@ class ConfirmEndSessionView(BaseView):
 class FoulSelectView(BaseView):
     """One message: pick fouling player + ball + foul type, then confirm. No navigation needed."""
 
-    def __init__(self, session: SnookerSession, fouling_player: str | None = None, ball: str | None = None, intentional: bool | None = None):
+    def __init__(self, session: SnookerSession, fouling_player: str | None = None, ball: str | None = None, intentional: bool | None = None, scoreboard_message: discord.Message | None = None):
         super().__init__(timeout=None)
         self._session = session
         self.fouling_player = fouling_player
         self.ball = ball
         self.intentional = intentional
+        self._scoreboard_message = scoreboard_message
         self._build()
 
     def _build(self):
@@ -572,42 +573,43 @@ class FoulSelectView(BaseView):
             if cs:
                 cs.apply_foul(self.fouling_player, self.ball, self._session.players, intentional=self.intentional)
             penalty = foul_penalty(self.ball)
-            embed = build_scoreboard_embed(self._session)
+            scoreboard_embed = build_scoreboard_embed(self._session)
             # Read computed recipients and per_player from the event just logged
             last_event = cs.events[-1] if cs and cs.events else {}
             per_player = last_event.get("per_player", penalty)
             recipients = last_event.get("recipients", [])
             if self.intentional:
                 prev_player = recipients[0] if recipients else ""
-                embed.add_field(
-                    name="✅ Intentional Foul Applied",
-                    value=(
-                        f"**{self.fouling_player}** intentionally fouled on "
-                        f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
-                        f"+{per_player} pts to **{prev_player}**."
-                    ),
-                    inline=False,
+                foul_summary = (
+                    f"**{self.fouling_player}** intentionally fouled on "
+                    f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
+                    f"+{per_player} pts to **{prev_player}**."
                 )
+                field_name = "✅ Intentional Foul Applied"
             else:
                 n_remaining = len(recipients)
-                embed.add_field(
-                    name="✅ Foul Applied",
-                    value=(
-                        f"**{self.fouling_player}** fouled on "
-                        f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
-                        f"+{per_player} pts to each of {n_remaining} other player(s)."
-                    ),
-                    inline=False,
+                foul_summary = (
+                    f"**{self.fouling_player}** fouled on "
+                    f"{BALL_EMOJIS[self.ball]} {self.ball.capitalize()} (penalty {penalty}). "
+                    f"+{per_player} pts to each of {n_remaining} other player(s)."
                 )
-            view = ScoreboardView(self._session)
-        await interaction.edit_original_response(embed=embed, view=view)
+                field_name = "✅ Foul Applied"
+            scoreboard_embed.add_field(name=field_name, value=foul_summary, inline=False)
+            scoreboard_view = ScoreboardView(self._session)
+        # Update the shared scoreboard message visible to everyone in the channel
+        if self._scoreboard_message:
+            try:
+                await self._scoreboard_message.edit(embed=scoreboard_embed, view=scoreboard_view)
+            except discord.HTTPException as exc:
+                log.warning("Could not update scoreboard message after foul: %s", exc)
+        # Dismiss the ephemeral foul form
+        await interaction.edit_original_response(content=f"✅ {field_name}: {foul_summary}", embed=None, view=None)
 
     async def _on_cancel(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        async with self._session._lock:
-            embed = build_scoreboard_embed(self._session)
-            view = ScoreboardView(self._session)
-        await interaction.edit_original_response(embed=embed, view=view)
+        # The shared scoreboard message was never changed, so no update needed.
+        # Just dismiss the ephemeral foul form.
+        await interaction.edit_original_response(content="❌ Foul cancelled.", embed=None, view=None)
 
 
 # ---------------------------------------------------------------------------
