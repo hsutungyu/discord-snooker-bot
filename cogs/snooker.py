@@ -270,7 +270,12 @@ class FoulButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         scoreboard_message = interaction.message
-        await interaction.response.send_modal(FoulModal(self._session, scoreboard_message=scoreboard_message))
+        view = FoulSelectView(self._session, scoreboard_message=scoreboard_message)
+        await interaction.response.send_message(
+            "🚫 **Record a Foul** — select the fouling player, ball, and foul type, then confirm.",
+            view=view,
+            ephemeral=True,
+        )
 
 
 class NewSetButton(discord.ui.Button):
@@ -457,67 +462,119 @@ class ConfirmEndSessionView(BaseView):
 # Foul flow — single-step select view
 # ---------------------------------------------------------------------------
 
-class FoulModal(discord.ui.Modal):
-    """Modal popup for recording a foul. All fields are filled client-side; the bot is
-    only contacted once when the user submits (or not at all if they dismiss it)."""
+class FoulSelectView(BaseView):
+    """Ephemeral select-based foul recorder.
+
+    Sends three dropdowns (fouling player, ball, foul type) and a Confirm
+    button.  Each dropdown callback marks the chosen option as *default* so
+    Discord renders the selected value instead of reverting to the placeholder
+    text after the view is re-rendered.  The Confirm button is only enabled
+    once all three selections have been made.
+    """
 
     def __init__(self, session: SnookerSession, scoreboard_message: discord.Message | None = None):
-        super().__init__(title="🚫 Record a Foul")
+        super().__init__(timeout=180)
         self._session = session
         self._scoreboard_message = scoreboard_message
 
-        players_str = " / ".join(session.players)
-        balls_str = " / ".join(BALLS)
+        self.selected_player: str | None = None
+        self.selected_ball: str | None = None
+        self.selected_foul_type: str | None = None
 
-        self.player_input = discord.ui.TextInput(
-            label="Fouling Player",
-            placeholder=players_str,
-            required=True,
-            max_length=50,
+        # --- Player select (row 0) ---
+        player_options = [discord.SelectOption(label=p, value=p) for p in session.players]
+        self.player_select = discord.ui.Select(
+            placeholder="Select fouling player…",
+            options=player_options,
+            row=0,
         )
-        self.ball_input = discord.ui.TextInput(
-            label="Ball",
-            placeholder=balls_str,
-            required=True,
-            max_length=20,
+        self.player_select.callback = self._on_player_select
+        self.add_item(self.player_select)
+
+        # --- Ball select (row 1) ---
+        ball_options = [
+            discord.SelectOption(
+                label=f"{BALL_EMOJIS[b]} {b.capitalize()} ({BALL_VALUES[b]})",
+                value=b,
+            )
+            for b in BALLS
+        ]
+        self.ball_select = discord.ui.Select(
+            placeholder="Select ball…",
+            options=ball_options,
+            row=1,
         )
-        self.foul_type_input = discord.ui.TextInput(
-            label="Foul Type",
-            placeholder="intentional / unintentional",
-            required=True,
-            max_length=15,
+        self.ball_select.callback = self._on_ball_select
+        self.add_item(self.ball_select)
+
+        # --- Foul type select (row 2) ---
+        foul_type_options = [
+            discord.SelectOption(label="Unintentional", value="unintentional"),
+            discord.SelectOption(label="Intentional", value="intentional"),
+        ]
+        self.foul_type_select = discord.ui.Select(
+            placeholder="Select foul type…",
+            options=foul_type_options,
+            row=2,
         )
-        self.add_item(self.player_input)
-        self.add_item(self.ball_input)
-        self.add_item(self.foul_type_input)
+        self.foul_type_select.callback = self._on_foul_type_select
+        self.add_item(self.foul_type_select)
 
-    async def on_submit(self, interaction: discord.Interaction):
-        fouling_player = self.player_input.value.strip()
-        ball = self.ball_input.value.strip().lower()
-        foul_type = self.foul_type_input.value.strip().lower()
+        # --- Confirm button (row 3, initially disabled) ---
+        self.confirm_button = discord.ui.Button(
+            label="✅ Confirm Foul",
+            style=discord.ButtonStyle.danger,
+            row=3,
+            disabled=True,
+        )
+        self.confirm_button.callback = self._on_confirm
+        self.add_item(self.confirm_button)
 
-        if fouling_player not in self._session.players:
-            await interaction.response.send_message(
-                f"❌ **{fouling_player}** is not a valid player. Valid players: {', '.join(self._session.players)}",
-                ephemeral=True,
-            )
-            return
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-        if ball not in BALLS:
-            await interaction.response.send_message(
-                f"❌ **{ball}** is not a valid ball. Valid balls: {', '.join(BALLS)}",
-                ephemeral=True,
-            )
-            return
+    def _mark_default(self, select: discord.ui.Select, value: str) -> None:
+        """Update the select's options so only *value* is marked as default."""
+        for opt in select.options:
+            opt.default = opt.value == value
 
-        if foul_type not in ("intentional", "unintentional"):
-            await interaction.response.send_message(
-                "❌ Foul type must be **intentional** or **unintentional**.",
-                ephemeral=True,
-            )
-            return
+    def _refresh_confirm(self) -> None:
+        self.confirm_button.disabled = not (
+            self.selected_player and self.selected_ball and self.selected_foul_type
+        )
 
-        intentional = foul_type == "intentional"
+    # ------------------------------------------------------------------
+    # Select callbacks
+    # ------------------------------------------------------------------
+
+    async def _on_player_select(self, interaction: discord.Interaction) -> None:
+        self.selected_player = self.player_select.values[0]
+        self._mark_default(self.player_select, self.selected_player)
+        self._refresh_confirm()
+        await interaction.response.edit_message(view=self)
+
+    async def _on_ball_select(self, interaction: discord.Interaction) -> None:
+        self.selected_ball = self.ball_select.values[0]
+        self._mark_default(self.ball_select, self.selected_ball)
+        self._refresh_confirm()
+        await interaction.response.edit_message(view=self)
+
+    async def _on_foul_type_select(self, interaction: discord.Interaction) -> None:
+        self.selected_foul_type = self.foul_type_select.values[0]
+        self._mark_default(self.foul_type_select, self.selected_foul_type)
+        self._refresh_confirm()
+        await interaction.response.edit_message(view=self)
+
+    # ------------------------------------------------------------------
+    # Confirm
+    # ------------------------------------------------------------------
+
+    async def _on_confirm(self, interaction: discord.Interaction) -> None:
+        fouling_player = self.selected_player
+        ball = self.selected_ball
+        intentional = self.selected_foul_type == "intentional"
+
         await interaction.response.defer(ephemeral=True)
         async with self._session._lock:
             cs = self._session.current_set
@@ -554,17 +611,6 @@ class FoulModal(discord.ui.Modal):
             except discord.HTTPException as exc:
                 log.warning("Could not update scoreboard message after foul: %s", exc)
         await interaction.followup.send(f"✅ {field_name}: {foul_summary}", ephemeral=True)
-
-    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
-        log.exception("Unhandled error in FoulModal: %s", error)
-        msg = "An unexpected error occurred."
-        try:
-            if interaction.response.is_done():
-                await interaction.followup.send(msg, ephemeral=True)
-            else:
-                await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------
