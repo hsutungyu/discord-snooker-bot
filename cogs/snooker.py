@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
-from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, foul_penalty, distribute_penalty
+from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, FOUL_BALLS, foul_penalty, distribute_penalty
 from engine.session import SnookerSession
 from db.database import save_session, save_set, end_session, delete_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid, mark_debt_paid_by_date, transfer_debt
 
@@ -497,7 +497,7 @@ class FoulSelectView(BaseView):
                 label=f"{BALL_EMOJIS[b]} {b.capitalize()} ({BALL_VALUES[b]})",
                 value=b,
             )
-            for b in BALLS
+            for b in FOUL_BALLS
         ]
         self.ball_select = discord.ui.Select(
             placeholder="Select ball…",
