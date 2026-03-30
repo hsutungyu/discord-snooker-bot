@@ -1,6 +1,7 @@
 import math
 
 BALL_VALUES: dict[str, int] = {
+    "white": 0,
     "red": 1,
     "yellow": 2,
     "green": 3,
@@ -11,6 +12,7 @@ BALL_VALUES: dict[str, int] = {
 }
 
 BALL_EMOJIS: dict[str, str] = {
+    "white": "⚪",
     "red": "🔴",
     "yellow": "🟡",
     "green": "🟢",
@@ -20,7 +22,11 @@ BALL_EMOJIS: dict[str, str] = {
     "black": "⚫",
 }
 
-BALLS = list(BALL_VALUES.keys())
+# Coloured balls used for scoring buttons (white/cue ball is never potted for points)
+BALLS = ["red", "yellow", "green", "brown", "blue", "pink", "black"]
+
+# All balls available as foul options, including the white/cue ball
+FOUL_BALLS = ["white"] + BALLS
 
 
 def foul_penalty(ball: str) -> int:
