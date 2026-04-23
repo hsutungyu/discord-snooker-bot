@@ -6,6 +6,11 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 GUILD_ID = int(os.getenv("GUILD_ID")) if os.getenv("GUILD_ID") else None
+FRONTEND_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",")
+    if origin.strip()
+]
 
 # Gitea mirror sync — used by /sync command
 GITEA_URL = os.getenv("GITEA_URL", "https://git.19371928.xyz")

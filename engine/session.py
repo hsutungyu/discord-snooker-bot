@@ -137,6 +137,10 @@ class SnookerSession:
     _perm_pool: list[list[int]] = field(default_factory=list)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
+    @property
+    def lock(self) -> asyncio.Lock:
+        return self._lock
+
     def init_players(self, players: list[str]):
         self.players = players
         self._perm_pool = self._fresh_permutations()

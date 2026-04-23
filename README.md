@@ -63,6 +63,7 @@ Set at least:
 
 ```env
 DATABASE_URL=postgresql://user:password@host:5432/dbname
+FRONTEND_ORIGINS=http://localhost:5173
 ```
 
 Optional mirror sync settings:
@@ -122,4 +123,3 @@ Key endpoints:
 - `POST /api/debts/pay-by-date`
 - `POST /api/debts/transfer`
 - `POST /api/mirror-sync`
-

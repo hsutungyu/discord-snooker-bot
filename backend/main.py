@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from contextlib import asynccontextmanager
 from typing import Literal
 
 import aiohttp
@@ -66,21 +67,22 @@ class TransferDebtRequest(BaseModel):
     debt2_id: int
 
 
-app = FastAPI(title="Snooker Web API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    if not config.DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not set in .env")
+    await init_db(config.DATABASE_URL)
+    yield
+
+
+app = FastAPI(title="Snooker Web API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.FRONTEND_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    if not config.DATABASE_URL:
-        raise RuntimeError("DATABASE_URL is not set in .env")
-    await init_db(config.DATABASE_URL)
 
 
 def _validate_ball(ball: str) -> None:
@@ -148,7 +150,7 @@ def _serialize_session(live: LiveSession) -> dict:
 async def _end_live_session(live: LiveSession) -> dict:
     session = live.session
     mode = live.mode
-    async with session._lock:
+    async with session.lock:
         cs = session.current_set
         if mode == "full":
             if cs and any(v > 0 for v in cs.scores.values()):
@@ -258,7 +260,7 @@ async def add_ball(session_id: str, req: BallRequest) -> dict:
         raise HTTPException(status_code=400, detail="Ball actions are only available in full mode")
 
     session = live.session
-    async with session._lock:
+    async with session.lock:
         cs = session.current_set
         if not cs:
             raise HTTPException(status_code=400, detail="No current set")
@@ -274,7 +276,7 @@ async def end_turn(session_id: str) -> dict:
 
     session = live.session
     alert = None
-    async with session._lock:
+    async with session.lock:
         cs = session.current_set
         if not cs:
             raise HTTPException(status_code=400, detail="No current set")
@@ -303,7 +305,7 @@ async def apply_foul(session_id: str, req: FoulRequest) -> dict:
         raise HTTPException(status_code=400, detail="Foul is only available in full mode")
 
     session = live.session
-    async with session._lock:
+    async with session.lock:
         if req.fouling_player not in session.players:
             raise HTTPException(status_code=400, detail="Fouling player must be in this session")
         cs = session.current_set
@@ -326,7 +328,7 @@ async def apply_foul(session_id: str, req: FoulRequest) -> dict:
 async def undo_action(session_id: str) -> dict:
     live = _get_live_session(session_id)
     session = live.session
-    async with session._lock:
+    async with session.lock:
         cs = session.current_set
         if not cs or not cs.undo():
             raise HTTPException(status_code=400, detail="Nothing to undo")
@@ -340,7 +342,7 @@ async def record_scores(session_id: str, req: RecordScoresRequest) -> dict:
         raise HTTPException(status_code=400, detail="Record scores is only available in record mode")
 
     session = live.session
-    async with session._lock:
+    async with session.lock:
         cs = session.current_set
         if not cs:
             raise HTTPException(status_code=400, detail="No current set")
@@ -359,7 +361,7 @@ async def record_scores(session_id: str, req: RecordScoresRequest) -> dict:
 async def start_new_set(session_id: str) -> dict:
     live = _get_live_session(session_id)
     session = live.session
-    async with session._lock:
+    async with session.lock:
         if live.mode == "record":
             cs = session.current_set
             if not cs or not cs.scores_finalized:
