@@ -1,0 +1,161 @@
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: #111827;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0.5rem 0;
+}
+
+.subtitle {
+  margin-top: 0;
+  color: #4b5563;
+}
+
+.card {
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: #ffffff;
+}
+
+.notice {
+  padding: 0.75rem;
+  border-radius: 8px;
+}
+
+.notice.success {
+  background: #ecfdf5;
+  border: 1px solid #10b981;
+}
+
+.notice.error {
+  background: #fef2f2;
+  border: 1px solid #ef4444;
+  white-space: pre-wrap;
+}
+
+.player-grid,
+.ball-grid,
+.record-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.player-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.ball-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  margin-bottom: 0.75rem;
+}
+
+.record-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.actions.wrap {
+  flex-wrap: wrap;
+}
+
+button,
+select,
+input {
+  border: 1px solid #9ca3af;
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.95rem;
+}
+
+button {
+  cursor: pointer;
+  background: #f9fafb;
+}
+
+button:hover {
+  background: #f3f4f6;
+}
+
+button.danger {
+  background: #fee2e2;
+  border-color: #ef4444;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+}
+
+th,
+td {
+  border: 1px solid #d1d5db;
+  padding: 0.45rem;
+  text-align: left;
+}
+
+.events {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+ul {
+  margin: 0.5rem 0;
+  padding-left: 1.2rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .container {
+    color: #f9fafb;
+  }
+
+  .subtitle {
+    color: #d1d5db;
+  }
+
+  .card {
+    background: #111827;
+    border-color: #374151;
+  }
+
+  button,
+  select,
+  input {
+    background: #1f2937;
+    color: #f9fafb;
+    border-color: #6b7280;
+  }
+
+  button:hover {
+    background: #374151;
+  }
+
+  th,
+  td,
+  .events {
+    border-color: #4b5563;
+  }
+}
