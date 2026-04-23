@@ -30,7 +30,8 @@ class SetState:
             "scores": dict(self.scores),
             "current_break": list(self.current_break),
             "breaks": {p: [list(b) for b in brks] for p, brks in self.breaks.items()},
-            "events": list(self.events),
+            # Events are append-only; storing length avoids O(n) copies per action.
+            "events_len": len(self.events),
             "current_player_idx": self.current_player_idx,
         })
         if len(self._undo_stack) > 20:
@@ -46,7 +47,7 @@ class SetState:
         self.scores = snap["scores"]
         self.current_break = snap["current_break"]
         self.breaks = snap["breaks"]
-        self.events = snap["events"]
+        self.events = self.events[:snap["events_len"]]
         self.current_player_idx = snap["current_player_idx"]
         return True
 

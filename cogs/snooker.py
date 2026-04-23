@@ -82,6 +82,47 @@ def _format_events_grouped(events: list[dict]) -> list[str]:
     return lines
 
 
+def _format_recent_events_grouped(events: list[dict], max_lines: int = 10) -> tuple[list[str], bool]:
+    """Format only the most recent grouped event lines for fast live scoreboard rendering."""
+    lines_rev: list[str] = []
+    i = len(events) - 1
+    while i >= 0 and len(lines_rev) < max_lines:
+        ev = events[i]
+        if ev["type"] == "ball":
+            player = ev["player"]
+            balls_rev: list[str] = []
+            end_seq = ev["seq"]
+            start_seq = end_seq
+            while i >= 0 and events[i]["type"] == "ball" and events[i]["player"] == player:
+                balls_rev.append(events[i]["ball"])
+                start_seq = events[i]["seq"]
+                i -= 1
+            balls = list(reversed(balls_rev))
+            total = sum(BALL_VALUES[b] for b in balls)
+            balls_str = " ".join(BALL_EMOJIS[b] for b in balls)
+            seq_label = f"{start_seq}" if start_seq == end_seq else f"{start_seq}-{end_seq}"
+            lines_rev.append(f"{seq_label:>5}. {player:<12} {balls_str} (+{total})")
+        elif ev["type"] == "foul":
+            recipients = ", ".join(ev["recipients"])
+            intent_tag = " [intentional]" if ev.get("intentional") else ""
+            per_player_str = (
+                f"+{ev['per_player']} ea → {recipients}"
+                if not ev.get("intentional") and len(ev["recipients"]) > 1
+                else f"+{ev['per_player']} → {recipients}"
+            )
+            lines_rev.append(
+                f"{ev['seq']:>5}. 🚫 {ev['fouler']:<11} {BALL_EMOJIS[ev['ball']]} "
+                f"{ev['ball'].capitalize()} (pen {ev['penalty']}, {per_player_str}{intent_tag})"
+            )
+            i -= 1
+        elif ev["type"] == "end_turn":
+            i -= 1
+        else:
+            lines_rev.append(f"{ev['seq']:>5}. {ev}")
+            i -= 1
+    return list(reversed(lines_rev)), i >= 0
+
+
 def _fmt_duration(secs: int) -> str:
     m, s = divmod(secs, 60)
     return f"{m}m {s:02d}s"
@@ -148,9 +189,9 @@ def build_scoreboard_embed(session: SnookerSession) -> discord.Embed:
 
         # Live event feed — last 10 grouped lines
         if cs.events:
-            feed_lines = _format_events_grouped(cs.events)
-            if len(feed_lines) > 10:
-                feed_lines = [f"… ({len(feed_lines) - 10} earlier)"] + feed_lines[-10:]
+            feed_lines, has_earlier = _format_recent_events_grouped(cs.events, max_lines=10)
+            if has_earlier:
+                feed_lines = ["… (earlier)"] + feed_lines
             embed.add_field(
                 name="📋 Set Log",
                 value="```\n" + "\n".join(feed_lines) + "\n```",
@@ -638,11 +679,12 @@ class RecordNewSetButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         set_data = self._session.save_current_set()
         if set_data:
             await save_set(self._session.session_id, set_data)
         self._session.start_set()
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             embed=build_record_embed(self._session),
             view=RecordScoreboardView(self._session),
         )
@@ -793,6 +835,7 @@ class StartSessionButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         # Preserve config order for selected players
         ordered = [p for p in config.PLAYERS if p in self._select_view.selected]
 
@@ -803,7 +846,7 @@ class StartSessionButton(discord.ui.Button):
         active_sessions[interaction.channel_id] = session
 
         await save_session(session)
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content="Choose scoring mode:",
             embed=None,
             view=ModeSelectView(session),
@@ -1388,4 +1431,3 @@ class SnookerCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SnookerCog(bot))
-
