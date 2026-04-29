@@ -9,6 +9,7 @@ pipeline {
         BE_IMAGE_PATH = "automation/discord-snooker-backend"
         FE_IMAGE_PATH = "automation/discord-snooker-frontend"
         VITE_API_URL  = "https://discord-snooker-backend.automation.k8s.19371928.xyz"
+        VITE_API_BASE = "https://discord-snooker-backend.automation.k8s.19371928.xyz/api"
         // Credential ID configured in Jenkins
         REGISTRY_CRED = "gitea-jenkins-token"    // Username+Password credential
     }
@@ -80,7 +81,7 @@ pipeline {
                             /kaniko/executor \
                                 --context=dir://${env.WORKSPACE} \
                                 --dockerfile=${env.WORKSPACE}/Dockerfile.frontend \
-                                --build-arg VITE_API_URL=${env.VITE_API_URL} \
+                                --build-arg VITE_API_BASE=${env.VITE_API_BASE} \
                                 --destination=${env.FE_FULL_IMAGE} \
                                 --cache=true \
                                 --cache-repo=${env.REGISTRY}/${env.FE_IMAGE_PATH}/cache
