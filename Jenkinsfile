@@ -8,7 +8,7 @@ pipeline {
         REGISTRY      = "git.19371928.xyz"
         BE_IMAGE_PATH = "automation/discord-snooker-backend"
         FE_IMAGE_PATH = "automation/discord-snooker-frontend"
-        VITE_API_URL  = "https://snooker-1.automation.k8s.19371928.xyz"
+        VITE_API_URL  = "https://discord-snooker-backend.automation.k8s.19371928.xyz"
         // Credential ID configured in Jenkins
         REGISTRY_CRED = "gitea-jenkins-token"    // Username+Password credential
     }
