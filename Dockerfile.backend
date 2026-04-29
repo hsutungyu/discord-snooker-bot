@@ -1,13 +1,10 @@
-# Stage 1: build dependencies (asyncpg requires gcc to compile its C extension)
+# Stage 1: install dependencies using pre-built binary wheels (no gcc required)
 FROM python:3.11-slim-bookworm AS builder
 
 WORKDIR /build
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
-    rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --only-binary=:all: --prefix=/install -r requirements.txt
 
 
 # Stage 2: lean runtime image
