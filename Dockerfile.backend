@@ -1,18 +1,9 @@
-# Stage 1: install dependencies using pre-built binary wheels (no gcc required)
-FROM python:3.11-slim-bookworm AS builder
-
-WORKDIR /build
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir --only-binary=:all: --prefix=/install -r requirements.txt
-
-
-# Stage 2: lean runtime image
 FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
-COPY --from=builder /install /usr/local
+COPY requirements.txt .
+RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt
 
 COPY web.py config.py ./
 COPY backend/ backend/
