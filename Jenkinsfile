@@ -20,32 +20,6 @@ pipeline {
             }
         }
 
-        stage('Detect Changes') {
-            steps {
-                script {
-                    def changedFiles = sh(
-                        script: 'git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only $(git rev-list --max-parents=0 HEAD) HEAD',
-                        returnStdout: true
-                    ).trim()
-                    echo "Changed files:\n${changedFiles}"
-
-                    def backendPaths = ['backend/', 'engine/', 'db/', 'web.py', 'config.py', 'requirements.txt', 'Dockerfile.backend']
-                    def frontendPaths = ['frontend/', 'Dockerfile.frontend']
-
-                    env.BACKEND_CHANGED = changedFiles.split('\n').any { f ->
-                        backendPaths.any { p -> f.startsWith(p) || f == p }
-                    } ? 'true' : 'false'
-
-                    env.FRONTEND_CHANGED = changedFiles.split('\n').any { f ->
-                        frontendPaths.any { p -> f.startsWith(p) || f == p }
-                    } ? 'true' : 'false'
-
-                    echo "Backend changed: ${env.BACKEND_CHANGED}"
-                    echo "Frontend changed: ${env.FRONTEND_CHANGED}"
-                }
-            }
-        }
-
         stage('Set Tag') {
             steps {
                 script {
@@ -64,7 +38,6 @@ pipeline {
         stage('Build & Push') {
             parallel {
                 stage('Backend') {
-                    when { expression { env.BACKEND_CHANGED == 'true' } }
                     steps {
                         container('kaniko') {
                             withCredentials([usernamePassword(
@@ -92,7 +65,6 @@ pipeline {
                 }
 
                 stage('Frontend') {
-                    when { expression { env.FRONTEND_CHANGED == 'true' } }
                     steps {
                         container('kaniko') {
                             withCredentials([usernamePassword(
@@ -125,46 +97,33 @@ pipeline {
         stage('Update k8s Manifests') {
             steps {
                 script {
-                    if (env.BACKEND_CHANGED == 'true') {
-                        sh """
-                            sed -i "s|${env.REGISTRY}/${env.BE_IMAGE_PATH}:[^ ]*|${env.BE_FULL_IMAGE}|g" \
-                                k8s/backend.yaml
-                        """
-                        echo "k8s/backend.yaml updated to ${env.BE_FULL_IMAGE}"
-                    }
-                    if (env.FRONTEND_CHANGED == 'true') {
-                        sh """
-                            sed -i "s|${env.REGISTRY}/${env.FE_IMAGE_PATH}:[^ ]*|${env.FE_FULL_IMAGE}|g" \
-                                k8s/frontend.yaml
-                        """
-                        echo "k8s/frontend.yaml updated to ${env.FE_FULL_IMAGE}"
-                    }
+                    sh """
+                        sed -i "s|${env.REGISTRY}/${env.BE_IMAGE_PATH}:[^ ]*|${env.BE_FULL_IMAGE}|g" \
+                            k8s/backend.yaml
+                    """
+                    echo "k8s/backend.yaml updated to ${env.BE_FULL_IMAGE}"
+                    sh """
+                        sed -i "s|${env.REGISTRY}/${env.FE_IMAGE_PATH}:[^ ]*|${env.FE_FULL_IMAGE}|g" \
+                            k8s/frontend.yaml
+                    """
+                    echo "k8s/frontend.yaml updated to ${env.FE_FULL_IMAGE}"
                 }
             }
         }
 
         stage('Deploy to Kubernetes') {
-            when {
-                expression { env.BACKEND_CHANGED == 'true' || env.FRONTEND_CHANGED == 'true' }
-            }
             steps {
                 container('helm') {
-                    script {
-                        if (env.BACKEND_CHANGED == 'true') {
-                            sh "kubectl apply -f k8s/backend.yaml"
-                            sh """
-                                kubectl rollout status deployment/discord-snooker-backend \
-                                    -n automation --timeout=120s
-                            """
-                        }
-                        if (env.FRONTEND_CHANGED == 'true') {
-                            sh "kubectl apply -f k8s/frontend.yaml"
-                            sh """
-                                kubectl rollout status deployment/discord-snooker-frontend \
-                                    -n automation --timeout=120s
-                            """
-                        }
-                    }
+                    sh "kubectl apply -f k8s/backend.yaml"
+                    sh """
+                        kubectl rollout status deployment/discord-snooker-backend \
+                            -n automation --timeout=120s
+                    """
+                    sh "kubectl apply -f k8s/frontend.yaml"
+                    sh """
+                        kubectl rollout status deployment/discord-snooker-frontend \
+                            -n automation --timeout=120s
+                    """
                 }
             }
         }
@@ -172,16 +131,7 @@ pipeline {
 
     post {
         success {
-            script {
-                def deployed = []
-                if (env.BACKEND_CHANGED == 'true') deployed << env.BE_FULL_IMAGE
-                if (env.FRONTEND_CHANGED == 'true') deployed << env.FE_FULL_IMAGE
-                if (deployed) {
-                    echo "Deployed: ${deployed.join(', ')}"
-                } else {
-                    echo "No components changed — nothing deployed."
-                }
-            }
+            echo "Deployed ${env.BE_FULL_IMAGE} and ${env.FE_FULL_IMAGE} successfully."
         }
         failure {
             echo "Pipeline failed. Check logs above."
