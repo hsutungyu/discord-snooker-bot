@@ -1,0 +1,39 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: discord-snooker-frontend-http-route
+  namespace: automation
+spec:
+  parentRefs:
+  - name: wildcard-gateway
+    namespace: istio-system
+  hostnames:
+  - "discord-snooker-frontend.automation.k8s.19371928.xyz"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: "/"
+    backendRefs:
+    - name: discord-snooker-frontend
+      port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: discord-snooker-backend-http-route
+  namespace: automation
+spec:
+  parentRefs:
+  - name: wildcard-gateway
+    namespace: istio-system
+  hostnames:
+  - "discord-snooker-backend.automation.k8s.19371928.xyz"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: "/"
+    backendRefs:
+    - name: discord-snooker-backend
+      port: 8000

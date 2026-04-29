@@ -120,6 +120,7 @@ pipeline {
                         kubectl rollout status deployment/discord-snooker-frontend \
                             -n automation --timeout=120s
                     """
+                    sh "kubectl apply -f k8s/httproutes.yaml"
                 }
             }
         }
