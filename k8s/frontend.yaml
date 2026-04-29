@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discord-snooker-frontend
+  namespace: automation
+  labels:
+    app: discord-snooker-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: discord-snooker-frontend
+  template:
+    metadata:
+      labels:
+        app: discord-snooker-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: git.19371928.xyz/automation/discord-snooker-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      imagePullSecrets:
+        - name: gitea-registry-secret
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: discord-snooker-frontend
+  namespace: automation
+spec:
+  selector:
+    app: discord-snooker-frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
