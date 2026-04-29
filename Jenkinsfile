@@ -35,60 +35,56 @@ pipeline {
             }
         }
 
-        stage('Build & Push') {
-            parallel {
-                stage('Backend') {
-                    steps {
-                        container('kaniko') {
-                            withCredentials([usernamePassword(
-                                credentialsId: 'gitea-jenkins-token',
-                                usernameVariable: 'REG_USER',
-                                passwordVariable: 'REG_PASS'
-                            )]) {
-                                sh '''
-                                    AUTH=$(printf "%s:%s" "$REG_USER" "$REG_PASS" | base64 -w 0)
-                                    mkdir -p /kaniko/.docker
-                                    printf '{"auths":{"%s":{"auth":"%s"}}}' \
-                                        "$REGISTRY" "$AUTH" > /kaniko/.docker/config.json
-                                '''
-                                sh """
-                                    /kaniko/executor \
-                                        --context=dir://${env.WORKSPACE} \
-                                        --dockerfile=${env.WORKSPACE}/Dockerfile.backend \
-                                        --destination=${env.BE_FULL_IMAGE} \
-                                        --cache=true \
-                                        --cache-repo=${env.REGISTRY}/${env.BE_IMAGE_PATH}/cache
-                                """
-                            }
-                        }
+        stage('Build & Push Backend') {
+            steps {
+                container('kaniko') {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'gitea-jenkins-token',
+                        usernameVariable: 'REG_USER',
+                        passwordVariable: 'REG_PASS'
+                    )]) {
+                        sh '''
+                            AUTH=$(printf "%s:%s" "$REG_USER" "$REG_PASS" | base64 -w 0)
+                            mkdir -p /kaniko/.docker
+                            printf '{"auths":{"%s":{"auth":"%s"}}}' \
+                                "$REGISTRY" "$AUTH" > /kaniko/.docker/config.json
+                        '''
+                        sh """
+                            /kaniko/executor \
+                                --context=dir://${env.WORKSPACE} \
+                                --dockerfile=${env.WORKSPACE}/Dockerfile.backend \
+                                --destination=${env.BE_FULL_IMAGE} \
+                                --cache=true \
+                                --cache-repo=${env.REGISTRY}/${env.BE_IMAGE_PATH}/cache
+                        """
                     }
                 }
+            }
+        }
 
-                stage('Frontend') {
-                    steps {
-                        container('kaniko') {
-                            withCredentials([usernamePassword(
-                                credentialsId: 'gitea-jenkins-token',
-                                usernameVariable: 'REG_USER',
-                                passwordVariable: 'REG_PASS'
-                            )]) {
-                                sh '''
-                                    AUTH=$(printf "%s:%s" "$REG_USER" "$REG_PASS" | base64 -w 0)
-                                    mkdir -p /kaniko/.docker
-                                    printf '{"auths":{"%s":{"auth":"%s"}}}' \
-                                        "$REGISTRY" "$AUTH" > /kaniko/.docker/config.json
-                                '''
-                                sh """
-                                    /kaniko/executor \
-                                        --context=dir://${env.WORKSPACE} \
-                                        --dockerfile=${env.WORKSPACE}/Dockerfile.frontend \
-                                        --build-arg VITE_API_URL=${env.VITE_API_URL} \
-                                        --destination=${env.FE_FULL_IMAGE} \
-                                        --cache=true \
-                                        --cache-repo=${env.REGISTRY}/${env.FE_IMAGE_PATH}/cache
-                                """
-                            }
-                        }
+        stage('Build & Push Frontend') {
+            steps {
+                container('kaniko') {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'gitea-jenkins-token',
+                        usernameVariable: 'REG_USER',
+                        passwordVariable: 'REG_PASS'
+                    )]) {
+                        sh '''
+                            AUTH=$(printf "%s:%s" "$REG_USER" "$REG_PASS" | base64 -w 0)
+                            mkdir -p /kaniko/.docker
+                            printf '{"auths":{"%s":{"auth":"%s"}}}' \
+                                "$REGISTRY" "$AUTH" > /kaniko/.docker/config.json
+                        '''
+                        sh """
+                            /kaniko/executor \
+                                --context=dir://${env.WORKSPACE} \
+                                --dockerfile=${env.WORKSPACE}/Dockerfile.frontend \
+                                --build-arg VITE_API_URL=${env.VITE_API_URL} \
+                                --destination=${env.FE_FULL_IMAGE} \
+                                --cache=true \
+                                --cache-repo=${env.REGISTRY}/${env.FE_IMAGE_PATH}/cache
+                        """
                     }
                 }
             }
