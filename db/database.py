@@ -57,6 +57,9 @@ async def init_db(dsn: str) -> None:
             ALTER TABLE {SCHEMA}.sets ADD COLUMN IF NOT EXISTS duration_secs INTEGER
         """)
         await conn.execute(f"""
+            ALTER TABLE {SCHEMA}.sessions ADD COLUMN IF NOT EXISTS active_state JSONB
+        """)
+        await conn.execute(f"""
             CREATE TABLE IF NOT EXISTS {SCHEMA}.debts (
                 id SERIAL PRIMARY KEY,
                 session_id TEXT NOT NULL REFERENCES {SCHEMA}.sessions(id),
@@ -168,6 +171,25 @@ async def get_completed_sessions() -> list[dict]:
             result.append(session)
 
         return result
+
+
+async def save_active_state(session_id: str, state: dict) -> None:
+    """Persist the full in-memory live-session state so it survives pod restarts."""
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            f"UPDATE {SCHEMA}.sessions SET active_state = $1 WHERE id = $2",
+            state,
+            session_id,
+        )
+
+
+async def load_active_sessions() -> list[dict]:
+    """Return all sessions that have not ended and have a persisted active state."""
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"SELECT * FROM {SCHEMA}.sessions WHERE ended_at IS NULL AND active_state IS NOT NULL"
+        )
+        return [dict(r) for r in rows]
 
 
 async def create_debt(session_id: str, session_date: str, debtor: str, creditor: str) -> None:
