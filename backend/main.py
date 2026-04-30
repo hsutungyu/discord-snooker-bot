@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Literal
 
 import aiohttp
@@ -18,8 +19,10 @@ from db.database import (
     get_completed_sessions,
     get_debts,
     init_db,
+    load_active_sessions,
     mark_debt_paid,
     mark_debt_paid_by_date,
+    save_active_state,
     save_session,
     save_set,
     transfer_debt,
@@ -37,6 +40,70 @@ class LiveSession:
 
 
 active_sessions: dict[str, LiveSession] = {}
+
+
+def _serialize_live_state(live: LiveSession) -> dict:
+    """Serialize a LiveSession to a JSON-safe dict for DB persistence."""
+    session = live.session
+    cs = session.current_set
+    current_set_data = None
+    if cs:
+        current_set_data = {
+            "set_number": cs.set_number,
+            "player_order": cs.player_order,
+            "current_player_idx": cs.current_player_idx,
+            "scores": cs.scores,
+            "scores_finalized": cs.scores_finalized,
+            "current_break": cs.current_break,
+            "breaks": cs.breaks,
+            "events": cs.events,
+            "started_at": cs.started_at.isoformat(),
+        }
+    return {
+        "mode": live.mode,
+        "perm_pool": session.perm_pool,
+        "completed_sets": session.completed_sets,
+        "last_completed_set": session.last_completed_set,
+        "current_set": current_set_data,
+    }
+
+
+def _deserialize_live_state(row: dict, state: dict) -> LiveSession:
+    """Restore a LiveSession from a DB sessions row and its active_state blob."""
+    from engine.session import SetState
+
+    session = SnookerSession(
+        session_id=row["id"],
+        date=row["date"],
+        players=list(row["players"]),
+        channel_id=row.get("channel_id"),
+        message_id=row.get("message_id"),
+    )
+    session.perm_pool = state.get("perm_pool", [])
+    session.completed_sets = state.get("completed_sets", [])
+    session.last_completed_set = state.get("last_completed_set")
+
+    cs_data = state.get("current_set")
+    if cs_data:
+        cs = SetState(
+            set_number=cs_data["set_number"],
+            player_order=cs_data["player_order"],
+            current_player_idx=cs_data.get("current_player_idx", 0),
+            scores=cs_data.get("scores", {}),
+            scores_finalized=cs_data.get("scores_finalized", False),
+            current_break=cs_data.get("current_break", []),
+            breaks=cs_data.get("breaks", {}),
+            events=cs_data.get("events", []),
+            started_at=datetime.fromisoformat(cs_data["started_at"]),
+        )
+        session.current_set = cs
+
+    return LiveSession(session=session, mode=state["mode"])
+
+
+async def _persist_live_session(live: LiveSession) -> None:
+    """Write the current live-session state to the DB so it survives restarts."""
+    await save_active_state(live.session.session_id, _serialize_live_state(live))
 
 
 class CreateSessionRequest(BaseModel):
@@ -72,6 +139,17 @@ async def lifespan(app_instance: FastAPI):
     if not config.DATABASE_URL:
         raise RuntimeError("DATABASE_URL is not set in .env")
     await init_db(config.DATABASE_URL)
+    # FastAPI's lifespan guarantees that all code before `yield` completes before
+    # the application begins accepting requests, so restoration is race-condition-free.
+    for row in await load_active_sessions():
+        state = row.get("active_state")
+        if state:
+            try:
+                live = _deserialize_live_state(row, state)
+                active_sessions[live.session.session_id] = live
+                log.info("Restored active session %s", live.session.session_id)
+            except Exception:
+                log.exception("Failed to restore session %s from DB", row["id"])
     yield
 
 
@@ -239,6 +317,7 @@ async def create_session(req: CreateSessionRequest) -> dict:
 
     live = LiveSession(session=session, mode=req.mode)
     active_sessions[session.session_id] = live
+    await _persist_live_session(live)
     return _serialize_session(live)
 
 
@@ -265,6 +344,7 @@ async def add_ball(session_id: str, req: BallRequest) -> dict:
         if not cs:
             raise HTTPException(status_code=400, detail="No current set")
         cs.add_score(cs.current_player(), req.ball)
+    await _persist_live_session(live)
     return _serialize_session(live)
 
 
@@ -294,6 +374,7 @@ async def end_turn(session_id: str) -> dict:
 
     payload = _serialize_session(live)
     payload["break_alert"] = alert
+    await _persist_live_session(live)
     return payload
 
 
@@ -321,6 +402,7 @@ async def apply_foul(session_id: str, req: FoulRequest) -> dict:
         "recipients": last_event.get("recipients", []),
         "intentional": req.intentional,
     }
+    await _persist_live_session(live)
     return payload
 
 
@@ -332,6 +414,7 @@ async def undo_action(session_id: str) -> dict:
         cs = session.current_set
         if not cs or not cs.undo():
             raise HTTPException(status_code=400, detail="Nothing to undo")
+    await _persist_live_session(live)
     return _serialize_session(live)
 
 
@@ -354,6 +437,7 @@ async def record_scores(session_id: str, req: RecordScoresRequest) -> dict:
                 raise HTTPException(status_code=400, detail=f"Invalid score for {player}")
             cs.set_score(player, score)
         cs.scores_finalized = True
+    await _persist_live_session(live)
     return _serialize_session(live)
 
 
@@ -371,6 +455,7 @@ async def start_new_set(session_id: str) -> dict:
         if set_data:
             await save_set(session.session_id, set_data)
         session.start_set()
+    await _persist_live_session(live)
     return _serialize_session(live)
 
 
