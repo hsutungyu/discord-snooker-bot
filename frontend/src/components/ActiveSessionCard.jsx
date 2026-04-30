@@ -221,36 +221,42 @@ export function ActiveSessionCard({
                   </div>
 
                   {/* Action buttons */}
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={onEndTurn}
-                      className="rounded-lg border border-[#1e3a1e] bg-[#0d1a0d] px-4 py-2 text-[#f0ede4] transition-colors hover:border-[#d4a017]/50 hover:text-[#d4a017]"
-                    >
-                      ⏭ End Turn
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onUndo}
-                      disabled={!currentSet.can_undo}
-                      className="rounded-lg border border-[#1e3a1e] bg-[#0d1a0d] px-4 py-2 text-[#f0ede4] transition-colors hover:border-[#d4a017]/50 hover:text-[#d4a017] disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      ↩ Undo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => requestConfirm('new-set')}
-                      className="rounded-lg border border-[#1e3a1e] bg-[#0d1a0d] px-4 py-2 text-[#f0ede4] transition-colors hover:border-[#d4a017]/50 hover:text-[#d4a017]"
-                    >
-                      ➕ New Set
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => requestConfirm('end')}
-                      className="rounded-lg border border-red-800 bg-red-950/50 px-4 py-2 font-semibold text-red-400 transition-colors hover:bg-red-900/50 hover:text-red-300"
-                    >
-                      🏁 End Session
-                    </button>
+                  <div className="mb-4 space-y-2">
+                    {/* Primary row: most-used actions */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={onEndTurn}
+                        className="flex-1 rounded-lg border border-[#2a5a2a] bg-[#122012] px-4 py-3 text-base font-semibold text-[#f0ede4] transition-colors hover:border-[#d4a017]/60 hover:text-[#d4a017]"
+                      >
+                        ⏭ End Turn
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onUndo}
+                        disabled={!currentSet.can_undo}
+                        className="flex-1 rounded-lg border border-[#2a5a2a] bg-[#122012] px-4 py-3 text-base font-semibold text-[#f0ede4] transition-colors hover:border-[#d4a017]/60 hover:text-[#d4a017] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        ↩ Undo
+                      </button>
+                    </div>
+                    {/* Secondary row: set/session management */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => requestConfirm('new-set')}
+                        className="flex-1 rounded-lg border border-[#1e3a1e] bg-[#0d1a0d] px-4 py-2 text-sm text-[#f0ede4] transition-colors hover:border-[#d4a017]/50 hover:text-[#d4a017]"
+                      >
+                        ➕ New Set
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => requestConfirm('end')}
+                        className="flex-1 rounded-lg border border-red-900 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-400 transition-colors hover:bg-red-900/50 hover:text-red-300"
+                      >
+                        🏁 End Session
+                      </button>
+                    </div>
                   </div>
                   {confirmPending && (
                     <div className="mb-4">
