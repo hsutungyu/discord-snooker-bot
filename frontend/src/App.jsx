@@ -23,7 +23,15 @@ async function api(path, options = {}) {
   return text ? JSON.parse(text) : null
 }
 
+const TABS = [
+  { id: 'session', label: '🎱 Current Session' },
+  { id: 'history', label: '📋 History' },
+  { id: 'debt', label: '🧋 Bubble Tea Debt' },
+  { id: 'sync', label: '🔄 Sync' },
+]
+
 function App() {
+  const [activeTab, setActiveTab] = useState('session')
   const [meta, setMeta] = useState({ players: [], balls: [], break_alert_threshold: 10 })
   const [sessions, setSessions] = useState([])
   const [sessionId, setSessionId] = useState('')
@@ -253,9 +261,27 @@ function App() {
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-4xl font-bold text-[#d4a017]">🎱 Snooker Scoreboard</h1>
         <p className="mt-1 text-[#a3b8a3]">FastAPI backend · React frontend</p>
+      </div>
+
+      {/* Tab bar */}
+      <div className="mb-6 flex gap-2 border-b border-[#1e3a1e]">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={[
+              'px-4 py-2 text-sm font-medium rounded-t-lg transition-colors',
+              activeTab === tab.id
+                ? 'bg-[#122012] text-[#d4a017] border border-b-0 border-[#1e3a1e]'
+                : 'text-[#a3b8a3] hover:text-[#d4a017] hover:bg-[#1a2e1a]',
+            ].join(' ')}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Notices */}
@@ -271,67 +297,77 @@ function App() {
       )}
 
       <div className="space-y-6">
-        <StartSessionCard
-          players={meta.players}
-          selectedPlayers={selectedPlayers}
-          onTogglePlayer={(player) =>
-            setSelectedPlayers((old) =>
-              old.includes(player) ? old.filter((n) => n !== player) : [...old, player],
-            )
-          }
-          mode={mode}
-          onModeChange={setMode}
-          onStart={createSession}
-          onRefresh={refreshSessions}
-        />
+        {activeTab === 'session' && (
+          <>
+            <StartSessionCard
+              players={meta.players}
+              selectedPlayers={selectedPlayers}
+              onTogglePlayer={(player) =>
+                setSelectedPlayers((old) =>
+                  old.includes(player) ? old.filter((n) => n !== player) : [...old, player],
+                )
+              }
+              mode={mode}
+              onModeChange={setMode}
+              onStart={createSession}
+              onRefresh={refreshSessions}
+            />
 
-        <ActiveSessionCard
-          sessions={sessions}
-          sessionId={sessionId}
-          onSelectSession={setSessionId}
-          currentSession={currentSession}
-          currentSet={currentSet}
-          balls={meta.balls}
-          foulForm={foulForm}
-          onFoulFormChange={setFoulForm}
-          recordScores={recordScores}
-          onRecordScoreChange={(player, value) => setRecordScores((old) => ({ ...old, [player]: value }))}
-          onBall={(ball) => mutateSession('/ball', { ball })}
-          onEndTurn={() => mutateSession('/end-turn')}
-          onUndo={() => mutateSession('/undo')}
-          onNewSet={() => mutateSession('/new-set')}
-          onEnd={() => mutateSession('/end')}
-          onFoul={() => mutateSession('/foul', foulForm)}
-          onSaveRecordScores={saveRecordScores}
-        />
+            <ActiveSessionCard
+              sessions={sessions}
+              sessionId={sessionId}
+              onSelectSession={setSessionId}
+              currentSession={currentSession}
+              currentSet={currentSet}
+              balls={meta.balls}
+              foulForm={foulForm}
+              onFoulFormChange={setFoulForm}
+              recordScores={recordScores}
+              onRecordScoreChange={(player, value) => setRecordScores((old) => ({ ...old, [player]: value }))}
+              onBall={(ball) => mutateSession('/ball', { ball })}
+              onEndTurn={() => mutateSession('/end-turn')}
+              onUndo={() => mutateSession('/undo')}
+              onNewSet={() => mutateSession('/new-set')}
+              onEnd={() => mutateSession('/end')}
+              onFoul={() => mutateSession('/foul', foulForm)}
+              onSaveRecordScores={saveRecordScores}
+            />
+          </>
+        )}
 
-        <HistoryCard
-          history={history}
-          historySessionIndex={historySessionIndex}
-          historySetIndex={historySetIndex}
-          onSelectSession={(idx) => {
-            setHistorySessionIndex(idx)
-            setHistorySetIndex(0)
-          }}
-          onSelectSet={setHistorySetIndex}
-          onRefresh={refreshHistory}
-          balls={meta.balls}
-        />
+        {activeTab === 'history' && (
+          <HistoryCard
+            history={history}
+            historySessionIndex={historySessionIndex}
+            historySetIndex={historySetIndex}
+            onSelectSession={(idx) => {
+              setHistorySessionIndex(idx)
+              setHistorySetIndex(0)
+            }}
+            onSelectSet={setHistorySetIndex}
+            onRefresh={refreshHistory}
+            balls={meta.balls}
+          />
+        )}
 
-        <DebtsCard
-          debts={debts}
-          transferableChains={transferableChains}
-          selectedChain={selectedChain}
-          payDate={payDate}
-          onPayDate={setPayDate}
-          onPayDebtByDate={payDebtByDate}
-          onSelectChain={setSelectedChain}
-          onTransferDebt={transferDebt}
-          onPayDebt={payDebt}
-          onRefresh={refreshDebts}
-        />
+        {activeTab === 'debt' && (
+          <DebtsCard
+            debts={debts}
+            transferableChains={transferableChains}
+            selectedChain={selectedChain}
+            payDate={payDate}
+            onPayDate={setPayDate}
+            onPayDebtByDate={payDebtByDate}
+            onSelectChain={setSelectedChain}
+            onTransferDebt={transferDebt}
+            onPayDebt={payDebt}
+            onRefresh={refreshDebts}
+          />
+        )}
 
-        <MirrorSyncCard onSync={triggerMirrorSync} />
+        {activeTab === 'sync' && (
+          <MirrorSyncCard onSync={triggerMirrorSync} />
+        )}
       </div>
     </main>
   )
