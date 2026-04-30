@@ -61,7 +61,7 @@ def _serialize_live_state(live: LiveSession) -> dict:
         }
     return {
         "mode": live.mode,
-        "perm_pool": session._perm_pool,
+        "perm_pool": session.perm_pool,
         "completed_sets": session.completed_sets,
         "last_completed_set": session.last_completed_set,
         "current_set": current_set_data,
@@ -79,7 +79,7 @@ def _deserialize_live_state(row: dict, state: dict) -> LiveSession:
         channel_id=row.get("channel_id"),
         message_id=row.get("message_id"),
     )
-    session._perm_pool = state.get("perm_pool", [])
+    session.perm_pool = state.get("perm_pool", [])
     session.completed_sets = state.get("completed_sets", [])
     session.last_completed_set = state.get("last_completed_set")
 
@@ -139,6 +139,8 @@ async def lifespan(app_instance: FastAPI):
     if not config.DATABASE_URL:
         raise RuntimeError("DATABASE_URL is not set in .env")
     await init_db(config.DATABASE_URL)
+    # FastAPI's lifespan guarantees that all code before `yield` completes before
+    # the application begins accepting requests, so restoration is race-condition-free.
     for row in await load_active_sessions():
         state = row.get("active_state")
         if state:
