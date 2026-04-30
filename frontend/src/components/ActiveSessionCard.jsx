@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 const BALL_COLORS = {
   red: 'bg-red-600 text-white hover:bg-red-500 border-red-700',
   yellow: 'bg-yellow-400 text-black hover:bg-yellow-300 border-yellow-500',
@@ -67,6 +69,28 @@ function EventLog({ events }) {
   )
 }
 
+function ConfirmBar({ label, onConfirm, onCancel }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-yellow-700 bg-yellow-950/40 px-3 py-2 text-sm text-yellow-300">
+      <span>Confirm {label}?</span>
+      <button
+        type="button"
+        onClick={onConfirm}
+        className="rounded-lg border border-yellow-600 bg-yellow-900/60 px-3 py-1 font-semibold text-yellow-200 transition-colors hover:bg-yellow-800/60"
+      >
+        Yes, confirm
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="rounded-lg border border-[#1e3a1e] bg-[#0d1a0d] px-3 py-1 text-[#a3b8a3] transition-colors hover:text-[#f0ede4]"
+      >
+        Cancel
+      </button>
+    </div>
+  )
+}
+
 export function ActiveSessionCard({
   sessions,
   sessionId,
@@ -86,6 +110,23 @@ export function ActiveSessionCard({
   onFoul,
   onSaveRecordScores,
 }) {
+  const [confirmPending, setConfirmPending] = useState(null)
+
+  function requestConfirm(action) {
+    setConfirmPending(action)
+  }
+
+  function handleConfirm() {
+    const action = confirmPending
+    setConfirmPending(null)
+    if (action === 'new-set') onNewSet()
+    if (action === 'end') onEnd()
+  }
+
+  function handleCancel() {
+    setConfirmPending(null)
+  }
+
   return (
     <section className="rounded-2xl border border-[#1e3a1e] bg-[#122012] p-6 shadow-lg">
       <h2 className="mb-4 text-xl font-bold text-[#d4a017]">Active Session</h2>
@@ -198,19 +239,28 @@ export function ActiveSessionCard({
                     </button>
                     <button
                       type="button"
-                      onClick={onNewSet}
+                      onClick={() => requestConfirm('new-set')}
                       className="rounded-lg border border-[#1e3a1e] bg-[#0d1a0d] px-4 py-2 text-[#f0ede4] transition-colors hover:border-[#d4a017]/50 hover:text-[#d4a017]"
                     >
                       ➕ New Set
                     </button>
                     <button
                       type="button"
-                      onClick={onEnd}
+                      onClick={() => requestConfirm('end')}
                       className="rounded-lg border border-red-800 bg-red-950/50 px-4 py-2 font-semibold text-red-400 transition-colors hover:bg-red-900/50 hover:text-red-300"
                     >
                       🏁 End Session
                     </button>
                   </div>
+                  {confirmPending && (
+                    <div className="mb-4">
+                      <ConfirmBar
+                        label={confirmPending === 'new-set' ? 'new set' : 'end session'}
+                        onConfirm={handleConfirm}
+                        onCancel={handleCancel}
+                      />
+                    </div>
+                  )}
 
                   {/* Foul form */}
                   <div className="rounded-lg border border-[#1e3a1e] bg-[#0d1a0d] p-3">
@@ -283,19 +333,28 @@ export function ActiveSessionCard({
                     </button>
                     <button
                       type="button"
-                      onClick={onNewSet}
+                      onClick={() => requestConfirm('new-set')}
                       className="rounded-lg border border-[#1e3a1e] bg-[#0d1a0d] px-4 py-2 text-[#f0ede4] transition-colors hover:border-[#d4a017]/50 hover:text-[#d4a017]"
                     >
                       ➕ New Set
                     </button>
                     <button
                       type="button"
-                      onClick={onEnd}
+                      onClick={() => requestConfirm('end')}
                       className="rounded-lg border border-red-800 bg-red-950/50 px-4 py-2 font-semibold text-red-400 transition-colors hover:bg-red-900/50 hover:text-red-300"
                     >
                       🏁 End Session
                     </button>
                   </div>
+                  {confirmPending && (
+                    <div className="mt-3">
+                      <ConfirmBar
+                        label={confirmPending === 'new-set' ? 'new set' : 'end session'}
+                        onConfirm={handleConfirm}
+                        onCancel={handleCancel}
+                      />
+                    </div>
+                  )}
                 </>
               )}
 
