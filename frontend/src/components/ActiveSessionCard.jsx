@@ -120,7 +120,7 @@ export function ActiveSessionCard({
     const action = confirmPending
     setConfirmPending(null)
     if (action === 'new-set') onNewSet()
-    if (action === 'end') onEnd()
+    else if (action === 'end') onEnd()
   }
 
   function handleCancel() {
