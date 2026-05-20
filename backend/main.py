@@ -182,8 +182,10 @@ async def lifespan(app_instance: FastAPI):
         bot_task.cancel()
         try:
             await bot_task
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError:
             pass
+        except Exception:
+            log.exception("Discord notification bot raised an unexpected error during shutdown")
 
 
 app = FastAPI(title="Snooker Web API", version="1.0.0", lifespan=lifespan)
@@ -333,7 +335,14 @@ async def _notify_scoreboard(live: LiveSession) -> None:
     new_msg_id = await discord_notifier.post_scoreboard(live.session, channel_id)
     if new_msg_id and new_msg_id != live.session.message_id:
         live.session.message_id = new_msg_id
-        await update_session_message_id(live.session.session_id, new_msg_id)
+        try:
+            await update_session_message_id(live.session.session_id, new_msg_id)
+        except Exception:
+            log.exception(
+                "Failed to persist message_id %d for session %s",
+                new_msg_id,
+                live.session.session_id,
+            )
 
 
 @app.get("/api/meta")
