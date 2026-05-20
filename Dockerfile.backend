@@ -1,0 +1,16 @@
+FROM python:3.11-slim-bookworm
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt
+
+COPY web.py config.py ./
+COPY backend/ backend/
+COPY engine/ engine/
+COPY db/ db/
+
+RUN useradd -m botuser && chown -R botuser /app
+USER botuser
+
+CMD ["python", "-u", "web.py"]

@@ -1,45 +1,52 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: discord-snooker
+  name: discord-snooker-backend
   namespace: automation
   labels:
-    app: discord-snooker
+    app: discord-snooker-backend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: discord-snooker
+      app: discord-snooker-backend
   template:
     metadata:
       labels:
-        app: discord-snooker
+        app: discord-snooker-backend
     spec:
       containers:
-        - name: discord-snooker
-          image: git.19371928.xyz/automation/discord-snooker:latest
+        - name: backend
+          image: git.19371928.xyz/automation/discord-snooker-backend:latest
           imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
           env:
-            - name: DISCORD_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: discord-snooker-secret
-                  key: DISCORD_TOKEN
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: discord-snooker-secret
                   key: DATABASE_URL
-            - name: GUILD_ID
+            - name: FRONTEND_ORIGINS
               valueFrom:
                 secretKeyRef:
                   name: discord-snooker-secret
-                  key: GUILD_ID
+                  key: FRONTEND_ORIGINS
             - name: GITEA_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: discord-snooker-secret
                   key: GITEA_TOKEN
+            - name: GITEA_URL
+              valueFrom:
+                secretKeyRef:
+                  name: discord-snooker-secret
+                  key: GITEA_URL
+            - name: GITEA_MIRROR_REPO
+              valueFrom:
+                secretKeyRef:
+                  name: discord-snooker-secret
+                  key: GITEA_MIRROR_REPO
           resources:
             requests:
               cpu: 50m
@@ -50,3 +57,16 @@ spec:
       imagePullSecrets:
         - name: gitea-registry-secret
       restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: discord-snooker-backend
+  namespace: automation
+spec:
+  selector:
+    app: discord-snooker-backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP
