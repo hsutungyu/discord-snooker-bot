@@ -204,7 +204,7 @@ function App() {
       const currentSetState = currentSession.current_set
       const playerOrder = currentSetState.player_order ?? currentSession.players
       if (!playerOrder.includes(player)) {
-        throw new Error(`Player ${player} is not in the current set order`)
+        throw new Error(`Player ${player} is not in the active player rotation`)
       }
 
       const sessionPath = `/sessions/${currentSession.session_id}`
@@ -216,7 +216,7 @@ function App() {
       while (payload.current_set?.current_player !== player && turns < maxTurns) {
         const activePlayer = payload.current_set?.current_player
         if (activePlayer && !playerOrder.includes(activePlayer)) {
-          throw new Error(`Current player ${activePlayer} is not in this set order`)
+          throw new Error(`Current player ${activePlayer} is not in the active player rotation`)
         }
         payload = await api(`${sessionPath}/end-turn`, { method: 'POST' })
         if (payload.break_alert) {
@@ -226,7 +226,9 @@ function App() {
       }
 
       if (payload.current_set?.current_player !== player) {
-        throw new Error(`Unable to rotate to ${player} after ${maxTurns} end-turn actions`)
+        throw new Error(
+          `Unable to rotate to ${player} after ${maxTurns} end-turn actions. Please refresh and try again.`,
+        )
       }
 
       payload = await api(`${sessionPath}/ball`, {
