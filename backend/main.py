@@ -405,6 +405,7 @@ async def add_ball(session_id: str, req: BallRequest) -> dict:
             raise HTTPException(status_code=400, detail="Player must be in this session")
         prev_player = cs.current_player()
         prev_break = list(cs.current_break)
+        prev_break_total = sum(BALL_VALUES[b] for b in prev_break)
         cs.add_score(player, req.ball)
         if player != prev_player and prev_break:
             total = sum(BALL_VALUES[b] for b in prev_break)
@@ -414,6 +415,19 @@ async def add_ball(session_id: str, req: BallRequest) -> dict:
                     "total": total,
                     "balls": prev_break,
                 }
+        current_break = list(cs.current_break)
+        current_break_total = sum(BALL_VALUES[b] for b in current_break)
+        if (
+            not alert
+            and player == cs.current_player()
+            and current_break_total >= config.BREAK_ALERT_THRESHOLD
+            and prev_break_total < config.BREAK_ALERT_THRESHOLD
+        ):
+            alert = {
+                "player": player,
+                "total": current_break_total,
+                "balls": current_break,
+            }
     payload = _serialize_session(live)
     payload["break_alert"] = alert
     await _persist_live_session(live)

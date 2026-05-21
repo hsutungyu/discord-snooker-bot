@@ -75,11 +75,11 @@ class SetState:
         self._save_snapshot()
         active_player = self.current_player()
         if player != active_player:
+            if player not in self.player_order:
+                raise ValueError(f"Player {player} is not in player order")
             if self.current_break:
                 self.breaks.setdefault(active_player, []).append(list(self.current_break))
                 self.current_break = []
-            if player not in self.player_order:
-                raise ValueError(f"Player {player} is not in player order")
             self.current_player_idx = self.player_order.index(player)
         from engine.score import BALL_VALUES
         value = BALL_VALUES[ball]

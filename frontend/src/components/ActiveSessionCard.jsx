@@ -204,7 +204,7 @@ export function ActiveSessionCard({
                   <span className="ml-1 text-lg font-bold text-[#d4a017]">#{currentSet.set_number}</span>
                 </div>
                 <div>
-                  <span className="text-xs text-[#a3b8a3]">Current break: </span>
+                  <span className="text-xs text-[#a3b8a3]">At table: </span>
                   <span className="font-semibold text-[#f0ede4]">{currentSet.current_player}</span>
                 </div>
                 <div>
