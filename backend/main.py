@@ -116,6 +116,7 @@ class CreateSessionRequest(BaseModel):
 
 class BallRequest(BaseModel):
     ball: str
+    player: str | None = None
 
 
 class FoulRequest(BaseModel):
@@ -394,14 +395,37 @@ async def add_ball(session_id: str, req: BallRequest) -> dict:
         raise HTTPException(status_code=400, detail="Ball actions are only available in full mode")
 
     session = live.session
+    alert = None
     async with session.lock:
         cs = session.current_set
         if not cs:
             raise HTTPException(status_code=400, detail="No current set")
-        cs.add_score(cs.current_player(), req.ball)
+        player = req.player or cs.current_player()
+        if player not in session.players:
+            raise HTTPException(status_code=400, detail="Player must be in this session")
+        prev_player = cs.current_player()
+        prev_break = list(cs.current_break)
+        cs.add_score(player, req.ball)
+        if player != prev_player and prev_break:
+            total = sum(BALL_VALUES[b] for b in prev_break)
+            if total >= config.BREAK_ALERT_THRESHOLD:
+                alert = {
+                    "player": prev_player,
+                    "total": total,
+                    "balls": prev_break,
+                }
+    payload = _serialize_session(live)
+    payload["break_alert"] = alert
     await _persist_live_session(live)
     await _notify_scoreboard(live)
-    return _serialize_session(live)
+    if alert and live.session.channel_id:
+        await discord_notifier.post_break_alert(
+            live.session.channel_id,
+            alert["player"],
+            alert["total"],
+            alert["balls"],
+        )
+    return payload
 
 
 @app.post("/api/sessions/{session_id}/end-turn")

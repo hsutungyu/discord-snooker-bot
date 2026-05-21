@@ -8,13 +8,13 @@ This project rewrites the original Discord bot into a web application:
 
 All core game features from the bot are implemented in the web app:
 
-- Full Mode (ball-by-ball scoring)
+- Full Mode (click player → click ball → submit score)
 - Record Mode (set total entry)
 - 2–4 player sessions with fixed player pool (`config.PLAYERS`)
 - Non-repeating shuffled player-order permutations for 3–4 players
 - Foul handling (intentional/unintentional) with correct penalty distribution
-- Break tracking + threshold alerts
-- Event log for each set (`ball`, `foul`, `end_turn`)
+- Break tracking + threshold alerts (breaks close when scoring switches player, foul is applied, or set ends)
+- Event log for each set (`ball`, `foul`; `end_turn` only if `/end-turn` is called directly)
 - Undo (up to 20 snapshots)
 - Set saving, new set flow, end-session flow
 - Ranking points + raw-score tiebreaker

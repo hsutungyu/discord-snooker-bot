@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 const BALL_COLORS = {
   red: 'bg-red-600 text-white hover:bg-red-500 border-red-700',
@@ -11,13 +11,15 @@ const BALL_COLORS = {
   white: 'bg-white text-black hover:bg-gray-100 border-gray-300',
 }
 
-function BallButton({ ball, onBall }) {
+function BallButton({ ball, onBallSelect, selected }) {
   const colorClass = BALL_COLORS[ball.name] ?? 'bg-[#1a3a1a] text-[#f0ede4] hover:bg-[#1e4a1e] border-[#1e3a1e]'
   return (
     <button
       type="button"
-      onClick={() => onBall(ball.name)}
-      className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 font-semibold transition-colors ${colorClass}`}
+      onClick={() => onBallSelect(ball.name)}
+      className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 font-semibold transition-colors ${colorClass} ${
+        selected ? 'ring-2 ring-[#d4a017]' : ''
+      }`}
     >
       <span>{ball.emoji}</span>
       <span className="capitalize">{ball.name}</span>
@@ -102,8 +104,7 @@ export function ActiveSessionCard({
   onFoulFormChange,
   recordScores,
   onRecordScoreChange,
-  onBall,
-  onEndTurn,
+  onSubmitScore,
   onUndo,
   onNewSet,
   onEnd,
@@ -111,6 +112,19 @@ export function ActiveSessionCard({
   onSaveRecordScores,
 }) {
   const [confirmPending, setConfirmPending] = useState(null)
+  const [selectedScoringPlayer, setSelectedScoringPlayer] = useState('')
+  const [selectedBall, setSelectedBall] = useState('')
+  const scoringPlayers = currentSet?.player_order ?? currentSession?.players ?? []
+
+  useEffect(() => {
+    if (scoringPlayers.length === 0) {
+      setSelectedScoringPlayer('')
+      return
+    }
+    if (!selectedScoringPlayer || !scoringPlayers.includes(selectedScoringPlayer)) {
+      setSelectedScoringPlayer(currentSet?.current_player ?? scoringPlayers[0])
+    }
+  }, [currentSet?.current_player, scoringPlayers, selectedScoringPlayer])
 
   function requestConfirm(action) {
     setConfirmPending(action)
@@ -125,6 +139,12 @@ export function ActiveSessionCard({
 
   function handleCancel() {
     setConfirmPending(null)
+  }
+
+  function handleScoreSubmit() {
+    if (!selectedScoringPlayer || !selectedBall) return
+    onSubmitScore(selectedScoringPlayer, selectedBall)
+    setSelectedBall('')
   }
 
   return (
@@ -184,7 +204,7 @@ export function ActiveSessionCard({
                   <span className="ml-1 text-lg font-bold text-[#d4a017]">#{currentSet.set_number}</span>
                 </div>
                 <div>
-                  <span className="text-xs text-[#a3b8a3]">Up now: </span>
+                  <span className="text-xs text-[#a3b8a3]">Current break: </span>
                   <span className="font-semibold text-[#f0ede4]">{currentSet.current_player}</span>
                 </div>
                 <div>
@@ -210,27 +230,49 @@ export function ActiveSessionCard({
 
               {currentSession.mode === 'full' ? (
                 <>
-                  {/* Ball buttons */}
                   <div className="mb-4">
-                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-[#a3b8a3]">Pot Ball</h3>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                      {balls.map((ball) => (
-                        <BallButton key={ball.name} ball={ball} onBall={onBall} />
+                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-[#a3b8a3]">Select Player</h3>
+                    <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                      {scoringPlayers.map((player) => (
+                        <button
+                          key={player}
+                          type="button"
+                          onClick={() => setSelectedScoringPlayer(player)}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                            selectedScoringPlayer === player
+                              ? 'border-[#d4a017] bg-[#2a2a12] text-[#f0ede4]'
+                              : 'border-[#1e3a1e] bg-[#0d1a0d] text-[#a3b8a3] hover:text-[#f0ede4]'
+                          }`}
+                        >
+                          {player}
+                        </button>
                       ))}
                     </div>
+                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-[#a3b8a3]">Select Ball</h3>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                      {balls.map((ball) => (
+                        <BallButton
+                          key={ball.name}
+                          ball={ball}
+                          onBallSelect={setSelectedBall}
+                          selected={selectedBall === ball.name}
+                        />
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleScoreSubmit}
+                      disabled={!selectedScoringPlayer || !selectedBall}
+                      className="mt-3 w-full rounded-lg bg-[#d4a017] px-5 py-2.5 font-semibold text-[#0d1a0d] transition-colors hover:bg-[#e8bb3a] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      ✅ Submit Score
+                    </button>
                   </div>
 
                   {/* Action buttons */}
                   <div className="mb-4 space-y-2">
                     {/* Primary row: most-used actions */}
                     <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={onEndTurn}
-                        className="flex-1 rounded-lg border border-[#2a5a2a] bg-[#122012] px-4 py-3 text-base font-semibold text-[#f0ede4] transition-colors hover:border-[#d4a017]/60 hover:text-[#d4a017]"
-                      >
-                        ⏭ End Turn
-                      </button>
                       <button
                         type="button"
                         onClick={onUndo}

@@ -71,8 +71,16 @@ class SetState:
         self.current_player_idx = (self.current_player_idx + 1) % len(self.player_order)
 
     def add_score(self, player: str, ball: str):
-        """Add a ball to the current player's score, live break, and event log."""
+        """Add a ball to a player's score and keep break tracking aligned with selected player."""
         self._save_snapshot()
+        active_player = self.current_player()
+        if player != active_player:
+            if self.current_break:
+                self.breaks.setdefault(active_player, []).append(list(self.current_break))
+                self.current_break = []
+            if player not in self.player_order:
+                raise ValueError(f"Player {player} is not in player order")
+            self.current_player_idx = self.player_order.index(player)
         from engine.score import BALL_VALUES
         value = BALL_VALUES[ball]
         self.scores[player] = self.scores.get(player, 0) + value

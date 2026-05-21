@@ -324,8 +324,7 @@ function App() {
               onFoulFormChange={setFoulForm}
               recordScores={recordScores}
               onRecordScoreChange={(player, value) => setRecordScores((old) => ({ ...old, [player]: value }))}
-              onBall={(ball) => mutateSession('/ball', { ball })}
-              onEndTurn={() => mutateSession('/end-turn')}
+              onSubmitScore={(player, ball) => mutateSession('/ball', { player, ball })}
               onUndo={() => mutateSession('/undo')}
               onNewSet={() => mutateSession('/new-set')}
               onEnd={() => mutateSession('/end')}
