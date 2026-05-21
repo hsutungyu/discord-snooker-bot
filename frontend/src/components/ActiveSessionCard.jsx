@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 const BALL_COLORS = {
   red: 'bg-red-600 text-white hover:bg-red-500 border-red-700',
@@ -11,13 +11,13 @@ const BALL_COLORS = {
   white: 'bg-white text-black hover:bg-gray-100 border-gray-300',
 }
 
-function BallButton({ ball, onBall }) {
+function BallButton({ ball, onBall, isSelected }) {
   const colorClass = BALL_COLORS[ball.name] ?? 'bg-[#1a3a1a] text-[#f0ede4] hover:bg-[#1e4a1e] border-[#1e3a1e]'
   return (
     <button
       type="button"
       onClick={() => onBall(ball.name)}
-      className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 font-semibold transition-colors ${colorClass}`}
+      className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 font-semibold transition-colors ${colorClass} ${isSelected ? 'ring-2 ring-[#d4a017] ring-offset-2 ring-offset-[#122012]' : ''}`}
     >
       <span>{ball.emoji}</span>
       <span className="capitalize">{ball.name}</span>
@@ -102,15 +102,30 @@ export function ActiveSessionCard({
   onFoulFormChange,
   recordScores,
   onRecordScoreChange,
-  onBall,
+  onSubmitBall,
   onEndTurn,
   onUndo,
   onNewSet,
   onEnd,
   onFoul,
   onSaveRecordScores,
+  isSubmittingBall,
 }) {
   const [confirmPending, setConfirmPending] = useState(null)
+  const [selectedPlayer, setSelectedPlayer] = useState('')
+  const [selectedBall, setSelectedBall] = useState('')
+
+  useEffect(() => {
+    if (!currentSet) {
+      setSelectedPlayer('')
+      setSelectedBall('')
+      return
+    }
+
+    const players = currentSet.player_order ?? currentSession?.players ?? []
+    setSelectedPlayer((old) => (old && players.includes(old) ? old : currentSet.current_player))
+    setSelectedBall('')
+  }, [currentSet?.set_number, currentSession?.session_id])
 
   function requestConfirm(action) {
     setConfirmPending(action)
@@ -210,14 +225,44 @@ export function ActiveSessionCard({
 
               {currentSession.mode === 'full' ? (
                 <>
-                  {/* Ball buttons */}
+                  {/* Guided score input */}
                   <div className="mb-4">
-                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-[#a3b8a3]">Pot Ball</h3>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                      {balls.map((ball) => (
-                        <BallButton key={ball.name} ball={ball} onBall={onBall} />
+                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-[#a3b8a3]">Score Entry</h3>
+                    <p className="mb-2 text-xs text-[#a3b8a3]">1) Choose player 2) Choose ball 3) Submit score</p>
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {(currentSet.player_order ?? currentSession.players).map((player) => (
+                        <button
+                          key={player}
+                          type="button"
+                          onClick={() => setSelectedPlayer(player)}
+                          className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                            selectedPlayer === player
+                              ? 'border-[#d4a017] bg-[#d4a017]/10 text-[#d4a017]'
+                              : 'border-[#1e3a1e] bg-[#0d1a0d] text-[#f0ede4] hover:border-[#d4a017]/50'
+                          }`}
+                        >
+                          {player}
+                        </button>
                       ))}
                     </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                      {balls.map((ball) => (
+                        <BallButton
+                          key={ball.name}
+                          ball={ball}
+                          onBall={setSelectedBall}
+                          isSelected={selectedBall === ball.name}
+                        />
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!selectedPlayer || !selectedBall || isSubmittingBall}
+                      onClick={() => onSubmitBall(selectedPlayer, selectedBall)}
+                      className="mt-3 w-full rounded-lg border border-[#2a5a2a] bg-[#122012] px-4 py-3 text-base font-semibold text-[#f0ede4] transition-colors hover:border-[#d4a017]/60 hover:text-[#d4a017] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {isSubmittingBall ? 'Submitting…' : `✅ Submit ${selectedBall ? `${selectedBall} ` : ''}for ${selectedPlayer || 'player'}`}
+                    </button>
                   </div>
 
                   {/* Action buttons */}

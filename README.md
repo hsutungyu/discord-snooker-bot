@@ -43,6 +43,20 @@ config.py          Env config, fixed players, break alert threshold
 
 ---
 
+## Full Mode Score Input Flow
+
+In the active set view (full mode), score entry is now:
+
+1. Click the player name
+2. Click the ball
+3. Click **Submit**
+
+The frontend will auto-advance turn order in the background before posting the ball if the selected player is not currently up, so break history remains grouped by consecutive scoring entries.
+
+> Caveat: Event logs can contain extra auto-generated `end_turn` events due to this assisted input flow, so use break history and scores as the primary source of truth.
+
+---
+
 ## Setup
 
 ### 1) Database
