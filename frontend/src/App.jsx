@@ -213,6 +213,10 @@ function App() {
       const maxTurns = playerOrder.length
 
       while (payload.current_set?.current_player !== player && turns < maxTurns) {
+        const activePlayer = payload.current_set?.current_player
+        if (activePlayer && !playerOrder.includes(activePlayer)) {
+          throw new Error(`Current player ${activePlayer} is not in this set order`)
+        }
         payload = await api(`${sessionPath}/end-turn`, { method: 'POST' })
         if (payload.break_alert) {
           pendingAlert = payload.break_alert

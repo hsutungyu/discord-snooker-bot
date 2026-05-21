@@ -141,6 +141,9 @@ export function ActiveSessionCard({
     setConfirmPending(null)
   }
 
+  const submitTarget = `${selectedBall || 'selected ball'} for ${selectedPlayer || 'player'}`
+  const submitButtonText = isSubmittingBall ? 'Submitting…' : `✅ Submit ${submitTarget}`
+
   return (
     <section className="rounded-2xl border border-[#1e3a1e] bg-[#122012] p-6 shadow-lg">
       <h2 className="mb-4 text-xl font-bold text-[#d4a017]">Active Session</h2>
@@ -260,7 +263,7 @@ export function ActiveSessionCard({
                       onClick={() => onSubmitBall(selectedPlayer, selectedBall)}
                       className="mt-3 w-full rounded-lg border border-[#2a5a2a] bg-[#122012] px-4 py-3 text-base font-semibold text-[#f0ede4] transition-colors hover:border-[#d4a017]/60 hover:text-[#d4a017] disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {isSubmittingBall ? 'Submitting…' : `✅ Submit ${selectedBall ? `${selectedBall} ` : ''}for ${selectedPlayer || 'player'}`}
+                      {submitButtonText}
                     </button>
                   </div>
 
