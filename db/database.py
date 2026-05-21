@@ -173,6 +173,16 @@ async def get_completed_sessions() -> list[dict]:
         return result
 
 
+async def update_session_message_id(session_id: str, message_id: int) -> None:
+    """Store the Discord message ID for a session's live scoreboard."""
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            f"UPDATE {SCHEMA}.sessions SET message_id = $1 WHERE id = $2",
+            message_id,
+            session_id,
+        )
+
+
 async def save_active_state(session_id: str, state: dict) -> None:
     """Persist the full in-memory live-session state so it survives pod restarts."""
     async with _pool.acquire() as conn:

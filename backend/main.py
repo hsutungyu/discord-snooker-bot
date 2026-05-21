@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
@@ -12,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import config
+from backend import discord_notifier
 from db.database import (
     create_debt,
     delete_session,
@@ -26,6 +28,7 @@ from db.database import (
     save_session,
     save_set,
     transfer_debt,
+    update_session_message_id,
 )
 from engine.score import BALLS, BALL_EMOJIS, BALL_VALUES, foul_penalty
 from engine.session import SnookerSession
@@ -150,7 +153,39 @@ async def lifespan(app_instance: FastAPI):
                 log.info("Restored active session %s", live.session.session_id)
             except Exception:
                 log.exception("Failed to restore session %s from DB", row["id"])
+
+    # Start the Discord notification bot if configured.
+    bot_task: asyncio.Task | None = None
+    if config.DISCORD_TOKEN and config.DISCORD_NOTIFY_CHANNEL_ID:
+        bot = discord_notifier.create_bot()
+
+        async def _run_bot():
+            try:
+                await bot.start(config.DISCORD_TOKEN)
+            except Exception:
+                log.exception("Discord notification bot crashed")
+
+        bot_task = asyncio.create_task(_run_bot())
+        log.info("Discord notification bot task started")
+    else:
+        log.info(
+            "Discord notifications disabled "
+            "(DISCORD_TOKEN or DISCORD_NOTIFY_CHANNEL_ID not set)"
+        )
+
     yield
+
+    if bot_task is not None:
+        bot = discord_notifier.get_bot()
+        if bot is not None:
+            await bot.close()
+        bot_task.cancel()
+        try:
+            await bot_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.exception("Discord notification bot raised an unexpected error during shutdown")
 
 
 app = FastAPI(title="Snooker Web API", version="1.0.0", lifespan=lifespan)
@@ -292,6 +327,24 @@ def _find_transferable_chains(debts: list[dict]) -> list[dict]:
     return chains
 
 
+async def _notify_scoreboard(live: LiveSession) -> None:
+    """Push a scoreboard update to Discord, persisting a new message_id if one is created."""
+    channel_id = live.session.channel_id
+    if not channel_id:
+        return
+    new_msg_id = await discord_notifier.post_scoreboard(live.session, channel_id)
+    if new_msg_id and new_msg_id != live.session.message_id:
+        live.session.message_id = new_msg_id
+        try:
+            await update_session_message_id(live.session.session_id, new_msg_id)
+        except Exception:
+            log.exception(
+                "Failed to persist message_id %d for session %s",
+                new_msg_id,
+                live.session.session_id,
+            )
+
+
 @app.get("/api/meta")
 async def get_meta() -> dict:
     return {
@@ -311,6 +364,7 @@ async def create_session(req: CreateSessionRequest) -> dict:
         raise HTTPException(status_code=400, detail="Players must be unique and from configured list")
 
     session = SnookerSession()
+    session.channel_id = config.DISCORD_NOTIFY_CHANNEL_ID
     session.init_players(selected)
     session.start_set()
     await save_session(session)
@@ -318,6 +372,7 @@ async def create_session(req: CreateSessionRequest) -> dict:
     live = LiveSession(session=session, mode=req.mode)
     active_sessions[session.session_id] = live
     await _persist_live_session(live)
+    await _notify_scoreboard(live)
     return _serialize_session(live)
 
 
@@ -345,6 +400,7 @@ async def add_ball(session_id: str, req: BallRequest) -> dict:
             raise HTTPException(status_code=400, detail="No current set")
         cs.add_score(cs.current_player(), req.ball)
     await _persist_live_session(live)
+    await _notify_scoreboard(live)
     return _serialize_session(live)
 
 
@@ -375,6 +431,14 @@ async def end_turn(session_id: str) -> dict:
     payload = _serialize_session(live)
     payload["break_alert"] = alert
     await _persist_live_session(live)
+    await _notify_scoreboard(live)
+    if alert and live.session.channel_id:
+        await discord_notifier.post_break_alert(
+            live.session.channel_id,
+            alert["player"],
+            alert["total"],
+            alert["balls"],
+        )
     return payload
 
 
@@ -403,6 +467,7 @@ async def apply_foul(session_id: str, req: FoulRequest) -> dict:
         "intentional": req.intentional,
     }
     await _persist_live_session(live)
+    await _notify_scoreboard(live)
     return payload
 
 
@@ -415,6 +480,7 @@ async def undo_action(session_id: str) -> dict:
         if not cs or not cs.undo():
             raise HTTPException(status_code=400, detail="Nothing to undo")
     await _persist_live_session(live)
+    await _notify_scoreboard(live)
     return _serialize_session(live)
 
 
@@ -438,6 +504,7 @@ async def record_scores(session_id: str, req: RecordScoresRequest) -> dict:
             cs.set_score(player, score)
         cs.scores_finalized = True
     await _persist_live_session(live)
+    await _notify_scoreboard(live)
     return _serialize_session(live)
 
 
@@ -456,13 +523,25 @@ async def start_new_set(session_id: str) -> dict:
             await save_set(session.session_id, set_data)
         session.start_set()
     await _persist_live_session(live)
+    await _notify_scoreboard(live)
     return _serialize_session(live)
 
 
 @app.post("/api/sessions/{session_id}/end")
 async def end_active_session(session_id: str) -> dict:
     live = _get_live_session(session_id)
-    return await _end_live_session(live)
+    channel_id = live.session.channel_id
+    message_id = live.session.message_id
+    result = await _end_live_session(live)
+    if channel_id and not result.get("discarded"):
+        await discord_notifier.post_session_ended(
+            channel_id,
+            message_id,
+            live.session,
+            result.get("standings", []),
+            result.get("debt", ""),
+        )
+    return result
 
 
 @app.get("/api/history")
