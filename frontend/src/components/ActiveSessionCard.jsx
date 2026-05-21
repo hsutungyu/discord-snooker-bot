@@ -124,7 +124,7 @@ export function ActiveSessionCard({
 
     setSelectedPlayer(currentSet.current_player)
     setSelectedBall('')
-  }, [currentSet?.set_number, currentSession?.session_id])
+  }, [currentSet?.set_number, currentSet?.current_player, currentSession?.session_id])
 
   function requestConfirm(action) {
     setConfirmPending(action)

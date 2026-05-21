@@ -201,13 +201,14 @@ function App() {
     if (!currentSession?.current_set) return
     setIsSubmittingBall(true)
     try {
-      const playerOrder = currentSession.current_set.player_order ?? currentSession.players
+      const currentSetState = currentSession.current_set
+      const playerOrder = currentSetState.player_order ?? currentSession.players
       if (!playerOrder.includes(player)) {
         throw new Error(`Player ${player} is not in the current set order`)
       }
 
       const sessionPath = `/sessions/${currentSession.session_id}`
-      let payload = { current_set: currentSession.current_set }
+      let payload = { current_set: currentSetState }
       let turns = 0
       let pendingAlert = null
       const maxTurns = playerOrder.length
@@ -225,7 +226,7 @@ function App() {
       }
 
       if (payload.current_set?.current_player !== player) {
-        throw new Error(`Unable to select turn for ${player}`)
+        throw new Error(`Unable to rotate to ${player} after ${maxTurns} end-turn actions`)
       }
 
       payload = await api(`${sessionPath}/ball`, {
