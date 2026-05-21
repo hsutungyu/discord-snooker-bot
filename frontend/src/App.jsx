@@ -48,6 +48,7 @@ function App() {
   const [payDate, setPayDate] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [isSubmittingBall, setIsSubmittingBall] = useState(false)
 
   const currentSession = useMemo(
     () => sessions.find((session) => session.session_id === sessionId) ?? null,
@@ -178,12 +179,7 @@ function App() {
         )
 
         if (data.break_alert) {
-          const alertBalls = data.break_alert.balls
-            .map((ball) => meta.balls.find((item) => item.name === ball)?.emoji ?? ball)
-            .join(' ')
-          setNotice(
-            `Break alert: ${data.break_alert.player} made ${data.break_alert.total} (${alertBalls})`,
-          )
+          setNotice(formatBreakAlert(data.break_alert))
         } else {
           setNotice('Action completed.')
         }
@@ -191,6 +187,66 @@ function App() {
       setError('')
     } catch (err) {
       setError(String(err))
+    }
+  }
+
+  function formatBreakAlert(alert) {
+    const alertBalls = alert.balls
+      .map((ball) => meta.balls.find((item) => item.name === ball)?.emoji ?? ball)
+      .join(' ')
+    return `Break alert: ${alert.player} made ${alert.total} (${alertBalls})`
+  }
+
+  async function submitBallForPlayer(player, ball) {
+    if (!currentSession?.current_set) return
+    setIsSubmittingBall(true)
+    try {
+      const currentSetState = currentSession.current_set
+      const playerOrder = currentSetState.player_order ?? currentSession.players
+      if (!playerOrder.includes(player)) {
+        throw new Error(`Player ${player} is not in the active player rotation`)
+      }
+
+      const sessionPath = `/sessions/${currentSession.session_id}`
+      let payload = { current_set: currentSetState }
+      let turns = 0
+      let pendingAlert = null
+      const maxTurns = playerOrder.length
+
+      while (payload.current_set?.current_player !== player && turns < maxTurns) {
+        const activePlayer = payload.current_set?.current_player
+        if (activePlayer && !playerOrder.includes(activePlayer)) {
+          throw new Error(`Current player ${activePlayer} is not in the active player rotation`)
+        }
+        payload = await api(`${sessionPath}/end-turn`, { method: 'POST' })
+        if (payload.break_alert) {
+          pendingAlert = payload.break_alert
+        }
+        turns += 1
+      }
+
+      if (payload.current_set?.current_player !== player) {
+        throw new Error(
+          `Unable to rotate to ${player} after ${maxTurns} end-turn actions. Please refresh and try again.`,
+        )
+      }
+
+      payload = await api(`${sessionPath}/ball`, {
+        method: 'POST',
+        body: JSON.stringify({ ball }),
+      })
+
+      setSessions((old) =>
+        old.map((session) =>
+          session.session_id === currentSession.session_id ? payload : session,
+        ),
+      )
+      setNotice(pendingAlert ? formatBreakAlert(pendingAlert) : `Scored ${ball} for ${player}.`)
+      setError('')
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setIsSubmittingBall(false)
     }
   }
 
@@ -324,13 +380,14 @@ function App() {
               onFoulFormChange={setFoulForm}
               recordScores={recordScores}
               onRecordScoreChange={(player, value) => setRecordScores((old) => ({ ...old, [player]: value }))}
-              onBall={(ball) => mutateSession('/ball', { ball })}
+              onSubmitBall={submitBallForPlayer}
               onEndTurn={() => mutateSession('/end-turn')}
               onUndo={() => mutateSession('/undo')}
               onNewSet={() => mutateSession('/new-set')}
               onEnd={() => mutateSession('/end')}
               onFoul={() => mutateSession('/foul', foulForm)}
               onSaveRecordScores={saveRecordScores}
+              isSubmittingBall={isSubmittingBall}
             />
           </>
         )}
