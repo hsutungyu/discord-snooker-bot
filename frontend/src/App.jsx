@@ -201,11 +201,16 @@ function App() {
     if (!currentSession?.current_set) return
     setIsSubmittingBall(true)
     try {
+      const playerOrder = currentSession.current_set.player_order ?? currentSession.players
+      if (!playerOrder.includes(player)) {
+        throw new Error(`Player ${player} is not in the current set order`)
+      }
+
       const sessionPath = `/sessions/${currentSession.session_id}`
       let payload = { current_set: currentSession.current_set }
       let turns = 0
       let pendingAlert = null
-      const maxTurns = currentSession.players.length
+      const maxTurns = playerOrder.length
 
       while (payload.current_set?.current_player !== player && turns < maxTurns) {
         payload = await api(`${sessionPath}/end-turn`, { method: 'POST' })

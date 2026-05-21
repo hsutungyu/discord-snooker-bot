@@ -122,8 +122,7 @@ export function ActiveSessionCard({
       return
     }
 
-    const players = currentSet.player_order ?? currentSession?.players ?? []
-    setSelectedPlayer((old) => (old && players.includes(old) ? old : currentSet.current_player))
+    setSelectedPlayer(currentSet.current_player)
     setSelectedBall('')
   }, [currentSet?.set_number, currentSession?.session_id])
 
