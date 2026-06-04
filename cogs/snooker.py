@@ -11,7 +11,7 @@ from discord.ext import commands
 import config
 from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, foul_penalty, distribute_penalty
 from engine.session import SnookerSession
-from db.database import save_session, save_set, end_session, delete_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid, mark_debt_paid_by_date, transfer_debt
+from db.database import save_session, save_set, end_session, delete_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid, mark_debt_paid_by_date, transfer_debt, update_set_scores
 
 log = logging.getLogger(__name__)
 
@@ -428,6 +428,7 @@ class ScoreboardView(BaseView):
         self.add_item(EndSessionButton(session))
         self.add_item(UndoButton(session))
         self.add_item(BallSummaryButton(session))
+        self.add_item(OverrideScoreButton(session, mode="full"))
 
 
 # ---------------------------------------------------------------------------
@@ -710,6 +711,7 @@ class RecordScoreboardView(BaseView):
         self.add_item(EnterScoresButton(session))
         self.add_item(RecordNewSetButton(session))
         self.add_item(RecordEndSessionButton(session))
+        self.add_item(OverrideScoreButton(session, mode="record"))
 
 
 class RecordScoreModal(discord.ui.Modal):
@@ -747,6 +749,149 @@ class RecordScoreModal(discord.ui.Modal):
         await interaction.response.edit_message(
             embed=build_record_embed(self._session),
             view=RecordScoreboardView(self._session),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Score override modal + button (emergency fallback for any set state)
+# ---------------------------------------------------------------------------
+
+class OverrideScoreModal(discord.ui.Modal):
+    """Modal that lets users hard-set scores for any set in the active session."""
+
+    def __init__(
+        self,
+        session: SnookerSession,
+        set_number: int,
+        scoreboard_message: discord.Message | None = None,
+        mode: str = "full",
+    ):
+        super().__init__(title=f"Override Set {set_number} Scores")
+        self._session = session
+        self._set_number = set_number
+        self._scoreboard_message = scoreboard_message
+        self._mode = mode
+        self._inputs: dict[str, discord.ui.TextInput] = {}
+
+        # Pre-fill inputs with the current scores for this set
+        current_scores: dict[str, int] = {}
+        if session.current_set and session.current_set.set_number == set_number:
+            current_scores = dict(session.current_set.scores)
+        else:
+            for s in session.completed_sets:
+                if s["set_number"] == set_number:
+                    current_scores = dict(s["scores"])
+                    break
+
+        for player in session.players:
+            inp = discord.ui.TextInput(
+                label=player,
+                placeholder="Enter score",
+                default=str(current_scores.get(player, 0)),
+                required=True,
+                min_length=1,
+                max_length=5,
+            )
+            self._inputs[player] = inp
+            self.add_item(inp)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        from engine.score import ranking_points as compute_ranking_points
+
+        new_scores: dict[str, int] = {}
+        for player, inp in self._inputs.items():
+            try:
+                score = int(inp.value)
+                if score < 0:
+                    raise ValueError
+                new_scores[player] = score
+            except ValueError:
+                await interaction.response.send_message(
+                    f"❌ Invalid score for **{player}**. Please enter a non-negative integer.",
+                    ephemeral=True,
+                )
+                return
+
+        embed: discord.Embed
+        view: discord.ui.View
+        async with self._session._lock:
+            cs = self._session.current_set
+            if cs and cs.set_number == self._set_number:
+                # Override the in-progress set
+                for player, score in new_scores.items():
+                    cs.scores[player] = score
+                if self._mode == "record":
+                    cs.scores_finalized = True
+                embed = (
+                    build_scoreboard_embed(self._session)
+                    if self._mode == "full"
+                    else build_record_embed(self._session)
+                )
+                view = (
+                    ScoreboardView(self._session)
+                    if self._mode == "full"
+                    else RecordScoreboardView(self._session)
+                )
+            else:
+                # Override a completed set — update memory and database
+                new_rp = compute_ranking_points(new_scores, self._session.players)
+                for i, s in enumerate(self._session.completed_sets):
+                    if s["set_number"] == self._set_number:
+                        self._session.completed_sets[i]["scores"] = new_scores
+                        self._session.completed_sets[i]["ranking_points"] = new_rp
+                        if (
+                            self._session.last_completed_set is not None
+                            and self._session.last_completed_set.get("set_number") == self._set_number
+                        ):
+                            self._session.last_completed_set["scores"] = new_scores
+                            self._session.last_completed_set["ranking_points"] = new_rp
+                        break
+                await update_set_scores(
+                    self._session.session_id, self._set_number, new_scores, new_rp
+                )
+                embed = (
+                    build_scoreboard_embed(self._session)
+                    if self._mode == "full"
+                    else build_record_embed(self._session)
+                )
+                view = (
+                    ScoreboardView(self._session)
+                    if self._mode == "full"
+                    else RecordScoreboardView(self._session)
+                )
+
+        await interaction.response.send_message(
+            f"✅ Set {self._set_number} scores overridden.", ephemeral=True
+        )
+        if self._scoreboard_message:
+            try:
+                await self._scoreboard_message.edit(embed=embed, view=view)
+            except discord.HTTPException as exc:
+                log.warning("Could not update scoreboard after score override: %s", exc)
+
+
+class OverrideScoreButton(discord.ui.Button):
+    """Opens OverrideScoreModal for the current set directly from the scoreboard."""
+
+    def __init__(self, session: SnookerSession, mode: str = "full"):
+        self._session = session
+        self._mode = mode
+        super().__init__(label="🔧 Override", style=discord.ButtonStyle.secondary, row=3)
+
+    async def callback(self, interaction: discord.Interaction):
+        cs = self._session.current_set
+        if not cs:
+            await interaction.response.send_message(
+                "No active set to override.", ephemeral=True
+            )
+            return
+        await interaction.response.send_modal(
+            OverrideScoreModal(
+                self._session,
+                cs.set_number,
+                scoreboard_message=interaction.message,
+                mode=self._mode,
+            )
         )
 
 
@@ -1351,6 +1496,30 @@ class SnookerCog(commands.Cog):
 
         view = PlayerSelectView()
         await interaction.response.send_message("Select players (minimum 2):", view=view)
+
+    @app_commands.command(name="override_score", description="Override the raw scores for any set in the active session")
+    @app_commands.describe(set_number="Set number to override (e.g. 1, 2, 3)")
+    async def override_score(self, interaction: discord.Interaction, set_number: int):
+        session = active_sessions.get(interaction.channel_id)
+        if not session:
+            await interaction.response.send_message(
+                "⚠️ No active session in this channel.", ephemeral=True
+            )
+            return
+
+        valid_set_numbers = [s["set_number"] for s in session.completed_sets]
+        if session.current_set:
+            valid_set_numbers.append(session.current_set.set_number)
+
+        if set_number not in valid_set_numbers:
+            await interaction.response.send_message(
+                f"⚠️ Set {set_number} not found in the active session. "
+                f"Valid sets: {', '.join(map(str, sorted(valid_set_numbers)))}",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_modal(OverrideScoreModal(session, set_number))
 
     @app_commands.command(name="history", description="View historical snooker session scores")
     async def history(self, interaction: discord.Interaction):
