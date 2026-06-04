@@ -248,6 +248,22 @@ async def mark_debt_paid_by_date(session_date: str) -> bool:
         return result.split()[-1] != "0"  # "UPDATE N" — N > 0 means a row was updated
 
 
+async def update_set_scores(session_id: str, set_number: int, scores: dict, ranking_points: dict) -> None:
+    """Overwrite the scores and ranking_points for a specific set in the database."""
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            f"""
+            UPDATE {SCHEMA}.sets
+            SET scores = $1, ranking_points = $2
+            WHERE session_id = $3 AND set_number = $4
+            """,
+            scores,
+            ranking_points,
+            session_id,
+            set_number,
+        )
+
+
 async def transfer_debt(debt1_id: int, debt2_id: int) -> None:
     """Transfer debt transitively.
 
