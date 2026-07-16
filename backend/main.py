@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 import config
 from backend import discord_notifier
 from db.database import (
+    clear_active_state,
     create_debt,
     delete_session,
     end_session,
@@ -47,6 +48,8 @@ active_sessions: dict[str, LiveSession] = {}
 
 def _serialize_live_state(live: LiveSession) -> dict:
     """Serialize a LiveSession to a JSON-safe dict for DB persistence."""
+    from dataclasses import asdict
+
     session = live.session
     cs = session.current_set
     current_set_data = None
@@ -62,18 +65,31 @@ def _serialize_live_state(live: LiveSession) -> dict:
             "events": cs.events,
             "started_at": cs.started_at.isoformat(),
         }
+    mapping_data = asdict(session.player_mapping) if session.player_mapping else None
     return {
         "mode": live.mode,
-        "perm_pool": session.perm_pool,
+        "player_mapping": mapping_data,
         "completed_sets": session.completed_sets,
         "last_completed_set": session.last_completed_set,
         "current_set": current_set_data,
     }
 
 
-def _deserialize_live_state(row: dict, state: dict) -> LiveSession:
-    """Restore a LiveSession from a DB sessions row and its active_state blob."""
+def _deserialize_live_state(row: dict, state: dict) -> LiveSession | None:
+    """Restore a LiveSession from a DB sessions row and its active_state blob.
+
+    Returns ``None`` if the persisted state is from a pre-SNOOKER-3 build
+    that has no ``player_mapping`` — such legacy sessions are dropped on
+    load (historical sets remain in the DB; only the in-memory live
+    session is discarded). The caller is expected to clear the
+    ``active_state`` blob in the DB after a ``None`` return.
+    """
     from engine.session import SetState
+    from engine.order import PlayerMapping
+
+    mapping_data = state.get("player_mapping")
+    if not mapping_data:
+        return None
 
     session = SnookerSession(
         session_id=row["id"],
@@ -82,7 +98,12 @@ def _deserialize_live_state(row: dict, state: dict) -> LiveSession:
         channel_id=row.get("channel_id"),
         message_id=row.get("message_id"),
     )
-    session.perm_pool = state.get("perm_pool", [])
+    session.player_mapping = PlayerMapping(
+        letter_to_player=dict(mapping_data["letter_to_player"]),
+        break_order=list(mapping_data["break_order"]),
+        order_seq_start=int(mapping_data["order_seq_start"]),
+        set_count=int(mapping_data.get("set_count", 0)),
+    )
     session.completed_sets = state.get("completed_sets", [])
     session.last_completed_set = state.get("last_completed_set")
 
@@ -101,6 +122,7 @@ def _deserialize_live_state(row: dict, state: dict) -> LiveSession:
         )
         session.current_set = cs
 
+    session.mode = state["mode"]
     return LiveSession(session=session, mode=state["mode"])
 
 
@@ -149,10 +171,22 @@ async def lifespan(app_instance: FastAPI):
         if state:
             try:
                 live = _deserialize_live_state(row, state)
-                active_sessions[live.session.session_id] = live
-                log.info("Restored active session %s", live.session.session_id)
             except Exception:
                 log.exception("Failed to restore session %s from DB", row["id"])
+                continue
+            if live is None:
+                # Legacy active_state (pre-SNOOKER-3) — drop the in-memory
+                # entry and clear the blob; the historical session rows and
+                # sets remain intact.
+                await clear_active_state(row["id"])
+                log.warning(
+                    "Discarded legacy live session %s (no player_mapping). "
+                    "Historical sets preserved.",
+                    row["id"],
+                )
+                continue
+            active_sessions[live.session.session_id] = live
+            log.info("Restored active session %s", live.session.session_id)
 
     # Start the Discord notification bot if configured.
     bot_task: asyncio.Task | None = None
@@ -365,6 +399,7 @@ async def create_session(req: CreateSessionRequest) -> dict:
 
     session = SnookerSession()
     session.channel_id = config.DISCORD_NOTIFY_CHANNEL_ID
+    session.mode = req.mode
     session.init_players(selected)
     session.start_set()
     await save_session(session)

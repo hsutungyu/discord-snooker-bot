@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { StartSessionCard } from './components/StartSessionCard'
 import { ActiveSessionCard } from './components/ActiveSessionCard'
@@ -49,6 +49,10 @@ function App() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [isSubmittingBall, setIsSubmittingBall] = useState(false)
+  // Tracks the previous active-session count so we can surface a one-time
+  // notice if a session disappears (e.g. dropped during the SNOOKER-3
+  // upgrade because the persisted state lacked ``player_mapping``).
+  const previousSessionCount = useRef(0)
 
   const currentSession = useMemo(
     () => sessions.find((session) => session.session_id === sessionId) ?? null,
@@ -104,6 +108,16 @@ function App() {
       const data = await api('/sessions/active')
       const active = data.sessions ?? []
       setSessions(active)
+
+      if (
+        previousSessionCount.current > 0 &&
+        active.length === 0
+      ) {
+        setNotice(
+          'A previously active session was closed during a recent upgrade — start a new one if you were mid-game.',
+        )
+      }
+      previousSessionCount.current = active.length
 
       if (!active.some((session) => session.session_id === sessionId)) {
         setSessionId(active[0]?.session_id ?? '')

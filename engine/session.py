@@ -2,11 +2,11 @@ import uuid
 import asyncio
 import random
 from datetime import datetime
-from itertools import permutations
-from typing import Optional
+from typing import Literal, Optional
 from dataclasses import dataclass, field
 
 from engine.score import distribute_penalty, ranking_points, foul_penalty
+from engine.order import PlayerMapping, build_set_order, new_random_mapping
 
 
 @dataclass
@@ -135,42 +135,35 @@ class SnookerSession:
     channel_id: Optional[int] = None
     message_id: Optional[int] = None
     last_completed_set: Optional[dict] = None
-    _perm_pool: list[list[int]] = field(default_factory=list)
+    player_mapping: Optional[PlayerMapping] = None
+    mode: Literal["full", "record"] = "full"
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     @property
     def lock(self) -> asyncio.Lock:
         return self._lock
 
-    @property
-    def perm_pool(self) -> list[list[int]]:
-        return self._perm_pool
-
-    @perm_pool.setter
-    def perm_pool(self, value: list[list[int]]) -> None:
-        self._perm_pool = value
-
     def init_players(self, players: list[str]):
-        self.players = players
-        self._perm_pool = self._fresh_permutations()
+        """Pick a random player↔letter bijection and break order.
 
-    def _fresh_permutations(self) -> list[list[int]]:
-        perms = [list(p) for p in permutations(range(len(self.players)))]
-        random.shuffle(perms)
-        return perms
-
-    def _next_order(self) -> list[str]:
-        # 2 players: always same order (only one meaningful permutation)
-        if len(self.players) <= 2:
-            return list(self.players)
-        if not self._perm_pool:
-            self._perm_pool = self._fresh_permutations()
-        indices = self._perm_pool.pop(0)
-        return [self.players[i] for i in indices]
+        ``init_players`` always builds a mapping (used by ``start_set``
+        in full mode). In record mode the mapping is still kept on the
+        session for symmetry but the displayed order falls back to
+        ``list(self.players)``.
+        """
+        self.players = list(players)
+        self.player_mapping = new_random_mapping(self.players, random.Random())
 
     def start_set(self) -> SetState:
         set_number = len(self.completed_sets) + 1
-        order = self._next_order()
+        # Record mode ignores the new ordering scheme — users enter final
+        # scores per player directly, so a non-deterministic order would
+        # just confuse the UI. Full mode uses the hardcoded tables + break
+        # rotation from SNOOKER-3.
+        if self.mode == "record" or self.player_mapping is None:
+            order = list(self.players)
+        else:
+            order = build_set_order(self.player_mapping)
         self.current_set = SetState(
             set_number=set_number,
             player_order=order,
