@@ -202,6 +202,21 @@ async def load_active_sessions() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+async def clear_active_state(session_id: str) -> None:
+    """Drop the persisted ``active_state`` blob for a session.
+
+    Used when the persisted state can't be migrated to the current schema
+    (e.g. live sessions saved before the SNOOKER-3 player-order refactor).
+    The session row itself is untouched so historical sets and debts
+    remain queryable.
+    """
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            f"UPDATE {SCHEMA}.sessions SET active_state = NULL WHERE id = $1",
+            session_id,
+        )
+
+
 async def create_debt(session_id: str, session_date: str, debtor: str, creditor: str) -> None:
     async with _pool.acquire() as conn:
         await conn.execute(

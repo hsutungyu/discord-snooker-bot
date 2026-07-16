@@ -29,7 +29,8 @@ backend/
   main.py        FastAPI endpoints (sessions, scoring, history, debts, mirror sync)
 engine/
   score.py       BALL_VALUES, foul_penalty, distribute_penalty, ranking_points
-  session.py     SnookerSession + SetState, permutation cycling, break/event/undo state
+  order.py       Hardcoded playing-order tables + PlayerMapping (SNOOKER-3)
+  session.py     SnookerSession + SetState, player_mapping + break rotation, break/event/undo state
 db/
   database.py    asyncpg pool + persistence for sessions/sets/debts
 frontend/
@@ -46,9 +47,16 @@ config.py        env + fixed PLAYERS + BREAK_ALERT_THRESHOLD + mirror-sync confi
 - **2 players:** standard snooker penalty behavior.
 - **3–4 players:** foul penalty is shared among non-fouling players via ceiling division.
 
-### Player Order
+### Player Order (SNOOKER-3, full mode only)
 
-- For 3–4 players, set order uses shuffled permutations with no repeats until permutation pool is exhausted.
+- At session start the backend picks a random player↔letter bijection
+  over A/B/C/D, a random `break_order` permutation, and a random start
+  index into the hardcoded order table (2p: `[AB]`; 3p: `[ABC, ACB]`;
+  4p: `[ABCD, ABDC, ACBD, ACDB, ADBC, ADCB]`).
+- Each new set rotates the current hardcoded order so the next
+  break-order player is first. Adjacent sets never share the same
+  first player.
+- Record mode uses `list(self.players)` — no rotation.
 
 ### Ranking + Tiebreak
 
