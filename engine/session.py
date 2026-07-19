@@ -5,8 +5,29 @@ from datetime import datetime
 from typing import Literal, Optional
 from dataclasses import dataclass, field
 
-from engine.score import distribute_penalty, ranking_points, foul_penalty
+from engine.score import distribute_penalty, ranking_points, foul_penalty, BALL_EMOJIS
 from engine.order import PlayerMapping, build_set_order, new_random_mapping
+
+
+def build_break_celebration_message(
+    player: str,
+    total: int,
+    balls: list[str],
+    threshold: int,
+) -> Optional[str]:
+    """Return the celebration message if ``total >= threshold``; otherwise ``None``.
+
+    Single source of truth for the SNOOKER-1 break-celebration copy,
+    used by the FastAPI backend, the Discord notification bot, and the
+    legacy Discord cog so they can't drift apart.
+    """
+    if total < threshold:
+        return None
+    balls_str = " ".join(BALL_EMOJIS[b] for b in balls)
+    return (
+        f"🎉 **Break celebration!** **{player}** just made a break of "
+        f"**{total}**! 🥳\n{balls_str}"
+    )
 
 
 @dataclass

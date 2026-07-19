@@ -32,7 +32,7 @@ from db.database import (
     update_session_message_id,
 )
 from engine.score import BALLS, BALL_EMOJIS, BALL_VALUES, foul_penalty
-from engine.session import SnookerSession
+from engine.session import SnookerSession, build_break_celebration_message
 
 log = logging.getLogger(__name__)
 
@@ -447,6 +447,7 @@ async def end_turn(session_id: str) -> dict:
 
     session = live.session
     alert = None
+    celebration_message = None
     async with session.lock:
         cs = session.current_set
         if not cs:
@@ -456,23 +457,19 @@ async def end_turn(session_id: str) -> dict:
         cs.next_player()
         if prev_break:
             total = sum(BALL_VALUES[b] for b in prev_break)
-            if total >= config.BREAK_ALERT_THRESHOLD:
-                alert = {
-                    "player": prev_player,
-                    "total": total,
-                    "balls": prev_break,
-                }
+            celebration_message = build_break_celebration_message(
+                prev_player, total, prev_break, config.BREAK_ALERT_THRESHOLD,
+            )
+            if celebration_message:
+                alert = {"player": prev_player, "total": total, "balls": prev_break}
 
     payload = _serialize_session(live)
     payload["break_alert"] = alert
     await _persist_live_session(live)
     await _notify_scoreboard(live)
-    if alert and live.session.channel_id:
-        await discord_notifier.post_break_alert(
-            live.session.channel_id,
-            alert["player"],
-            alert["total"],
-            alert["balls"],
+    if celebration_message and live.session.channel_id:
+        await discord_notifier.post_break_celebration(
+            live.session.channel_id, celebration_message,
         )
     return payload
 

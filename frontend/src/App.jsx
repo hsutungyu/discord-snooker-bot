@@ -208,7 +208,7 @@ function App() {
     const alertBalls = alert.balls
       .map((ball) => meta.balls.find((item) => item.name === ball)?.emoji ?? ball)
       .join(' ')
-    return `Break alert: ${alert.player} made ${alert.total} (${alertBalls})`
+    return `🎉 Break celebration: ${alert.player} made ${alert.total} (${alertBalls})`
   }
 
   async function submitBallForPlayer(player, ball) {
