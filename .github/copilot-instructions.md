@@ -68,7 +68,10 @@ config.py        env + fixed PLAYERS + BREAK_ALERT_THRESHOLD + mirror-sync confi
 
 - `current_break` accumulates live balls.
 - Break is flushed on end-turn/foul/set end.
-- Break alert is raised when break total ≥ `BREAK_ALERT_THRESHOLD`.
+- Break celebration is raised when break total ≥ `BREAK_ALERT_THRESHOLD` (SNOOKER-1).
+  Message is built by `engine.session.build_break_celebration_message`
+  (🎉 + 🥳 + "Break celebration!"), shared by the FastAPI backend, the
+  Discord notification bot, and the legacy Discord cog.
 
 ### Event Log
 

@@ -2,8 +2,8 @@
 
 This module owns a single ``discord.Client`` instance (no slash commands).
 It posts/updates scoreboard embeds in a configured channel whenever the
-backend mutates session state, and sends break-alert messages when a break
-meets or exceeds ``config.BREAK_ALERT_THRESHOLD``.
+backend mutates session state, and sends break-celebration messages when
+a break meets or exceeds ``config.BREAK_ALERT_THRESHOLD``.
 
 All public functions are safe no-ops when the bot is unconfigured or not
 yet connected—callers do not need to guard against ``None``.
@@ -229,22 +229,27 @@ async def post_scoreboard(session, channel_id: int) -> Optional[int]:
         return None
 
 
-async def post_break_alert(
-    channel_id: int, player: str, total: int, balls: list[str]
+async def post_break_celebration(
+    channel_id: int, message: Optional[str]
 ) -> None:
-    """Send a break-alert message to the channel."""
+    """Send a prebuilt break-celebration message to the channel.
+
+    The message string is built by ``engine.session.build_break_celebration_message``
+    so the FastAPI backend, Discord notifier, and legacy Discord cog
+    share one source of truth for the celebration copy. ``message=None``
+    is a no-op (defensive: callers should already gate on the threshold).
+    """
+    if not message:
+        return
     if _bot is None or not _bot.is_ready():
         return
     channel = _bot.get_channel(channel_id)
     if channel is None:
         return
-    balls_str = " ".join(BALL_EMOJIS[b] for b in balls)
     try:
-        await channel.send(
-            f"🎯 **Break alert!** **{player}** scored a break of **{total}**!\n{balls_str}"
-        )
+        await channel.send(message)
     except discord.HTTPException as exc:
-        log.warning("Failed to send break alert: %s", exc)
+        log.warning("Failed to send break celebration: %s", exc)
 
 
 async def post_session_ended(

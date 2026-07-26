@@ -14,7 +14,7 @@ All core game features from the bot are implemented in the web app:
 - Deterministic full-mode player order driven by hardcoded tables
   (SNOOKER-3); see "Full-Mode Player Order" below
 - Foul handling (intentional/unintentional) with correct penalty distribution
-- Break tracking + threshold alerts
+- Break tracking + threshold alerts (🎉 break celebration at `BREAK_ALERT_THRESHOLD`, SNOOKER-1)
 - Event log for each set (`ball`, `foul`, `end_turn`)
 - Undo (up to 20 snapshots)
 - Set saving, new set flow, end-session flow

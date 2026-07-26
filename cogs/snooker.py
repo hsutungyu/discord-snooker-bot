@@ -10,7 +10,7 @@ from discord.ext import commands
 
 import config
 from engine.score import BALL_VALUES, BALL_EMOJIS, BALLS, foul_penalty, distribute_penalty
-from engine.session import SnookerSession
+from engine.session import SnookerSession, build_break_celebration_message
 from db.database import save_session, save_set, end_session, delete_session, get_completed_sessions, create_debt, get_debts, mark_debt_paid, mark_debt_paid_by_date, transfer_debt
 
 log = logging.getLogger(__name__)
@@ -291,12 +291,9 @@ class EndTurnButton(discord.ui.Button):
                 cs.next_player()
                 if prev_break:
                     total = sum(BALL_VALUES[b] for b in prev_break)
-                    if total >= config.BREAK_ALERT_THRESHOLD:
-                        balls_str = " ".join(BALL_EMOJIS[b] for b in prev_break)
-                        alert_msg = (
-                            f"🎯 **Break alert!** **{prev_player}** scored a break of **{total}**!\n"
-                            f"{balls_str}"
-                        )
+                    alert_msg = build_break_celebration_message(
+                        prev_player, total, prev_break, config.BREAK_ALERT_THRESHOLD,
+                    )
             embed = build_scoreboard_embed(self._session)
             view = ScoreboardView(self._session)
         await interaction.edit_original_response(embed=embed, view=view)
